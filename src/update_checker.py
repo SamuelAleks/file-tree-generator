@@ -8,7 +8,7 @@ import urllib.request
 from packaging.version import Version as StrictVersion
 
 # Current version - update this when you release a new version
-CURRENT_VERSION = "1.0.0"
+CURRENT_VERSION = "1.0.1"
 GITHUB_REPO = "SamuelAleks/file-tree-generator"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 GITHUB_RELEASE_URL = f"https://github.com/{GITHUB_REPO}/releases/latest"

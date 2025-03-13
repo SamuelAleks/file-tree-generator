@@ -265,40 +265,41 @@ class FileTreeGeneratorApp:
         # Add update check to Help menu
         add_update_check_to_menu(help_menu)
         
-    def show_about(self):
-        """Show about dialog"""
-        about_window = tk.Toplevel(self.root)
-        about_window.title("About File Tree Generator")
-        about_window.geometry("400x300")
-        about_window.resizable(False, False)
-        about_window.transient(self.root)
-        about_window.grab_set()
-        
-        # About content
-        ttk.Label(about_window, text="File Tree Generator", font=("Helvetica", 16, "bold")).pack(pady=10)
-        ttk.Label(about_window, text=f"Version {update_checker.CURRENT_VERSION}").pack()
-        ttk.Label(about_window, text="© 2025 Your Name/Company").pack(pady=5)
-        ttk.Label(about_window, text="A tool to create visual representations of directory trees").pack(pady=10)
-        
-        # GitHub link
-        github_frame = ttk.Frame(about_window)
-        github_frame.pack(pady=10)
-        ttk.Label(github_frame, text="GitHub: ").pack(side=tk.LEFT)
-        github_link = ttk.Label(github_frame, text="github.com/yourusername/file-tree-generator", 
-                                foreground="blue", cursor="hand2")
-        github_link.pack(side=tk.LEFT)
-        github_link.bind("<Button-1>", lambda e: webbrowser.open(f"https://github.com/{update_checker.GITHUB_REPO}"))
-        
-        # Close button
-        ttk.Button(about_window, text="Close", command=about_window.destroy).pack(pady=10)
-        
-        # Center the window
-        about_window.update_idletasks()
-        width = about_window.winfo_width()
-        height = about_window.winfo_height()
-        x = (about_window.winfo_screenwidth() // 2) - (width // 2)
-        y = (about_window.winfo_screenheight() // 2) - (height // 2)
-        about_window.geometry(f"{width}x{height}+{x}+{y}")
+def show_about(self):
+    """Show about dialog"""
+    about_window = tk.Toplevel(self.root)
+    about_window.title("About File Tree Generator")
+    about_window.geometry("400x300")
+    about_window.resizable(False, False)
+    about_window.transient(self.root)
+    about_window.grab_set()
+    
+    # About content
+    ttk.Label(about_window, text="File Tree Generator", font=("Helvetica", 16, "bold")).pack(pady=10)
+    ttk.Label(about_window, text=f"Version {update_checker.CURRENT_VERSION}").pack()
+    ttk.Label(about_window, text="© 2025 Paape Companies").pack(pady=5)
+    ttk.Label(about_window, text="A tool to create visual representations of directory trees").pack(pady=10)
+    
+    # GitHub link
+    github_frame = ttk.Frame(about_window)
+    github_frame.pack(pady=10)
+    ttk.Label(github_frame, text="GitHub: ").pack(side=tk.LEFT)
+    github_link = ttk.Label(github_frame, text="github.com/SamuelAleks/file-tree-generator", 
+                            foreground="blue", cursor="hand2")
+    github_link.pack(side=tk.LEFT)
+    github_link.bind("<Button-1>", lambda e: webbrowser.open(f"https://github.com/{update_checker.GITHUB_REPO}"))
+    
+    # Close button
+    ttk.Button(about_window, text="Close", command=about_window.destroy).pack(pady=10)
+    
+    # Center the window
+    about_window.update_idletasks()
+    width = about_window.winfo_width()
+    height = about_window.winfo_height()
+    x = (about_window.winfo_screenwidth() // 2) - (width // 2)
+    y = (about_window.winfo_screenheight() // 2) - (height // 2)
+    about_window.geometry(f"{width}x{height}+{x}+{y}")
+
 if __name__ == "__main__":
     root = tk.Tk()
     app = FileTreeGeneratorApp(root)
