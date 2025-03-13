@@ -1,5 +1,4 @@
 name: Build File Tree Generator
-
 on:
   push:
     branches: [ main, master ]
@@ -7,16 +6,15 @@ on:
       - 'v*'  # Push events to matching v*, i.e. v1.0, v20.15.10
   pull_request:
     branches: [ main, master ]
-
 jobs:
   build-windows:
     runs-on: windows-latest
     
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     
     - name: Set up Python
-      uses: actions/setup-python@v2
+      uses: actions/setup-python@v4
       with:
         python-version: '3.10'
     
@@ -46,13 +44,13 @@ jobs:
         & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" setup_script.iss
       
     - name: Upload exe artifact
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3
       with:
         name: FileTreeGenerator.exe
         path: dist/FileTreeGenerator.exe
         
     - name: Upload installer artifact
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3
       with:
         name: FileTreeGenerator_Setup.exe
         path: installer/FileTreeGenerator_Setup.exe
@@ -60,22 +58,10 @@ jobs:
     - name: Create Release
       if: startsWith(github.ref, 'refs/tags/v')
       id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      uses: softprops/action-gh-release@v1
       with:
-        tag_name: ${{ github.ref }}
-        release_name: File Tree Generator ${{ github.ref_name }}
+        files: |
+          dist/FileTreeGenerator.exe
+          installer/FileTreeGenerator_Setup.exe
         draft: false
         prerelease: false
-        
-    - name: Upload Release Assets
-      if: startsWith(github.ref, 'refs/tags/v')
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./installer/FileTreeGenerator_Setup.exe
-        asset_name: FileTreeGenerator_Setup.exe
-        asset_content_type: application/octet-stream
