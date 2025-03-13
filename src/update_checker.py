@@ -9,7 +9,7 @@ import socket
 from packaging.version import Version as StrictVersion
 
 # Current version - update this when you release a new version
-CURRENT_VERSION = "1.0.1"
+CURRENT_VERSION = "1.0.2"
 GITHUB_REPO = "SamuelAleks/file-tree-generator"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 GITHUB_RELEASE_URL = f"https://github.com/{GITHUB_REPO}/releases/latest"
@@ -25,7 +25,7 @@ def get_latest_version():
         try:
             with urllib.request.urlopen(req, timeout=5) as response:
                 data = json.loads(response.read().decode())
-                # GitHub release tag format: "v1.0.1"
+                # GitHub release tag format: "v1.0.2"
                 latest_version = data.get('tag_name', '').lstrip('v')
                 return latest_version, data.get('html_url', GITHUB_RELEASE_URL)
         except urllib.error.URLError as e:

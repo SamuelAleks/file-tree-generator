@@ -1,5 +1,5 @@
 #define MyAppName "File Tree Generator"
-#define MyAppVersion "1.0.1"
+#define MyAppVersion "1.0.2"
 #define MyAppPublisher "Paape Companies"
 #define MyAppURL "https://github.com/SamuelAleks/file-tree-generator"
 #define MyAppExeName "FileTreeGenerator.exe"
