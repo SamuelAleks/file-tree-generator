@@ -36,3 +36,4 @@ installer/
 *.swp
 *.swo
 /.vs
+/src/file_structure.txt
