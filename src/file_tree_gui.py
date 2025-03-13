@@ -7,7 +7,7 @@ from tkinter.scrolledtext import ScrolledText
 # Import your existing function and config utilities
 from file_tree_generator import create_file_tree
 from config_utils import load_config, save_config
-from update_checker import check_updates_at_startup, add_update_check_to_menu, update_checker
+from update_checker import check_updates_at_startup, add_update_check_to_menu, CURRENT_VERSION
 
 class FileTreeGeneratorApp:
     def __init__(self, root):
