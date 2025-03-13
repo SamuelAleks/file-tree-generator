@@ -30,17 +30,17 @@ Compression=lzma
 SolidCompression=yes
 
 ; Appearance and behavior
-SetupIconFile=icon.ico
+SetupIconFile=resources\icon.ico
 WizardStyle=modern
-WizardSmallImageFile=icon_small.bmp
-WizardImageFile=wizard_image.bmp
+WizardSmallImageFile=resources\icon_small.bmp
+WizardImageFile=resources\wizard_image.bmp
 WizardImageStretch=no
 WizardImageBackColor=$FFFFFF
 DisableWelcomePage=no
 
 ; Files and permissions
-LicenseFile=LICENSE.txt
-InfoBeforeFile=README.txt
+LicenseFile=docs\LICENSE.txt
+InfoBeforeFile=docs\README.txt
 InfoAfterFile=
 PrivilegesRequiredOverridesAllowed=dialog
 PrivilegesRequired=lowest
@@ -59,11 +59,15 @@ Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescrip
 Name: "portablemode"; Description: "Portable Mode (store settings in application folder)"; GroupDescription: "Installation Mode:"; Flags: unchecked
 
 [Files]
+; Main executable
 Source: "dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
-Source: "README.txt"; DestDir: "{app}"; Flags: ignoreversion isreadme
-Source: "LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
-; Add any additional files here
-;Source: "example_data\*"; DestDir: "{app}\example_data"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+; Documentation
+Source: "docs\README.txt"; DestDir: "{app}"; Flags: ignoreversion isreadme
+Source: "docs\LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
+
+; Resources (optional)
+Source: "resources\icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -78,7 +82,6 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChang
 [Registry]
 ; Add this key to set portable mode
 Root: HKCU; Subkey: "Software\{#MyAppPublisher}\{#MyAppName}"; ValueType: string; ValueName: "PortableMode"; ValueData: "1"; Flags: uninsdeletekey; Tasks: portablemode
-; You can add other registry entries for file type associations, etc.
 
 [Code]
 // This function creates a batch file to support portable mode if selected
@@ -104,7 +107,6 @@ begin
   end;
 end;
 
-// Call the batch file creation function after installation
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
@@ -113,7 +115,6 @@ begin
   end;
 end;
 
-// Add custom welcome page text
 function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo, MemoTypeInfo, MemoComponentsInfo, MemoGroupInfo, MemoTasksInfo: String): String;
 var
   S: String;
