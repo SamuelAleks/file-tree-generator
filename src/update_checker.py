@@ -5,7 +5,7 @@ import tkinter as tk
 from tkinter import messagebox
 import webbrowser
 import urllib.request
-from distutils.version import StrictVersion
+from packaging.version import Version as StrictVersion
 
 # Current version - update this when you release a new version
 CURRENT_VERSION = "1.0.0"
