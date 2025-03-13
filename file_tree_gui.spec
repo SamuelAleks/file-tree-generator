@@ -2,8 +2,8 @@
 
 
 a = Analysis(
-    ['C:\\Users\\SamuelA\\OneDrive - Paape Companies Inc\\Documents\\2025-01-22- TGML and West Ramp\\file-tree-generator\\src\\file_tree_gui.py'],
-    pathex=['C:\\Users\\SamuelA\\OneDrive - Paape Companies Inc\\Documents\\2025-01-22- TGML and West Ramp\\file-tree-generator\\src'],
+    ['src/file_tree_gui.py'],
+    pathex=['src'],
     binaries=[],
     datas=[],
     hiddenimports=[],
@@ -35,5 +35,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['C:\\Users\\SamuelA\\OneDrive - Paape Companies Inc\\Documents\\2025-01-22- TGML and West Ramp\\file-tree-generator\\resources\\icon.ico'],
+    icon=['resources/icon.ico'],
 )

@@ -28,11 +28,11 @@ jobs:
       if: startsWith(github.ref, 'refs/tags/v')
       run: |
         $VersionNumber = "${{ github.ref }}".Substring(11)  # Extract version from tag
-        (Get-Content update_checker.py) -replace 'CURRENT_VERSION = ".*"', "CURRENT_VERSION = ""$VersionNumber""" | Set-Content update_checker.py
+        (Get-Content src/update_checker.py) -replace 'CURRENT_VERSION = ".*"', "CURRENT_VERSION = ""$VersionNumber""" | Set-Content src/update_checker.py
     
     - name: Build with PyInstaller
       run: |
-        pyinstaller --onefile --windowed --icon=icon.ico --name FileTreeGenerator file_tree_gui.py
+        pyinstaller --onefile --windowed --icon=resources/icon.ico --name FileTreeGenerator src/file_tree_gui.py
     
     - name: Create Inno Setup installer
       run: |
