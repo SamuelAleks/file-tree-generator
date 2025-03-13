@@ -1,0 +1,81 @@
+name: Build File Tree Generator
+
+on:
+  push:
+    branches: [ main, master ]
+    tags:
+      - 'v*'  # Push events to matching v*, i.e. v1.0, v20.15.10
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+    - uses: actions/checkout@v2
+    
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller
+        pip install -r requirements.txt
+        
+    - name: Update version info
+      if: startsWith(github.ref, 'refs/tags/v')
+      run: |
+        $VersionNumber = "${{ github.ref }}".Substring(11)  # Extract version from tag
+        (Get-Content update_checker.py) -replace 'CURRENT_VERSION = ".*"', "CURRENT_VERSION = ""$VersionNumber""" | Set-Content update_checker.py
+    
+    - name: Build with PyInstaller
+      run: |
+        pyinstaller --onefile --windowed --icon=icon.ico --name FileTreeGenerator file_tree_gui.py
+    
+    - name: Create Inno Setup installer
+      run: |
+        # Download and install Inno Setup
+        Invoke-WebRequest -Uri "https://jrsoftware.org/download.php/is.exe" -OutFile "is.exe"
+        Start-Process -FilePath "is.exe" -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Wait
+        
+        # Compile installer
+        & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" setup_script.iss
+      
+    - name: Upload exe artifact
+      uses: actions/upload-artifact@v2
+      with:
+        name: FileTreeGenerator.exe
+        path: dist/FileTreeGenerator.exe
+        
+    - name: Upload installer artifact
+      uses: actions/upload-artifact@v2
+      with:
+        name: FileTreeGenerator_Setup.exe
+        path: installer/FileTreeGenerator_Setup.exe
+    
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/v')
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: File Tree Generator ${{ github.ref_name }}
+        draft: false
+        prerelease: false
+        
+    - name: Upload Release Assets
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./installer/FileTreeGenerator_Setup.exe
+        asset_name: FileTreeGenerator_Setup.exe
+        asset_content_type: application/octet-stream
