@@ -5,6 +5,7 @@ import tkinter as tk
 from tkinter import messagebox
 import webbrowser
 import urllib.request
+import socket
 from packaging.version import Version as StrictVersion
 
 # Current version - update this when you release a new version
@@ -24,7 +25,7 @@ def get_latest_version():
         try:
             with urllib.request.urlopen(req, timeout=5) as response:
                 data = json.loads(response.read().decode())
-                # GitHub release tag format: "v1.0.0"
+                # GitHub release tag format: "v1.0.1"
                 latest_version = data.get('tag_name', '').lstrip('v')
                 return latest_version, data.get('html_url', GITHUB_RELEASE_URL)
         except urllib.error.URLError as e:
@@ -33,7 +34,7 @@ def get_latest_version():
         except json.JSONDecodeError:
             print("Error parsing GitHub API response")
             return None, None
-        except timeout:
+        except socket.timeout:
             print("Timeout while checking for updates")
             return None, None
     except Exception as e:

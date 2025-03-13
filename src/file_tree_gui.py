@@ -1,13 +1,20 @@
 import os
+import sys
+import subprocess
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, Menu
 import webbrowser
 from tkinter.scrolledtext import ScrolledText
 
 # Import your existing function and config utilities
-from file_tree_generator import create_file_tree
+from file_tree_generator import (
+    create_file_tree, 
+    export_as_html, 
+    export_as_markdown, 
+    export_as_json
+)
 from config_utils import load_config, save_config
-from update_checker import check_updates_at_startup, add_update_check_to_menu, CURRENT_VERSION
+from update_checker import check_updates_at_startup, add_update_check_to_menu, CURRENT_VERSION, GITHUB_REPO
 
 class FileTreeGeneratorApp:
     def __init__(self, root):
@@ -187,6 +194,22 @@ class FileTreeGeneratorApp:
             self.log(error_msg)
             messagebox.showerror("Error", error_msg)
     
+    def open_file(self, file_path):
+        """Open a file with the default application in a cross-platform way"""
+        file_path = os.path.normpath(file_path)
+        try:
+            if os.name == 'nt':  # Windows
+                os.startfile(file_path)
+            elif os.name == 'posix':  # macOS or Linux
+                if sys.platform == 'darwin':  # macOS
+                    subprocess.run(['open', file_path], check=True)
+                else:  # Linux
+                    subprocess.run(['xdg-open', file_path], check=True)
+            return True
+        except Exception as e:
+            print(f"Error opening file: {str(e)}")
+            return False
+    
     def generate_file_tree(self):
         try:
             # Get values from UI
@@ -279,29 +302,13 @@ class FileTreeGeneratorApp:
         
             # Ask if user wants to open the file
             if messagebox.askyesno("Open File", "Do you want to open the generated file?"):
-                open_file(output_file)
+                self.open_file(output_file)
             
         except Exception as e:
             error_msg = f"Error: {str(e)}"
             self.log(error_msg)
             messagebox.showerror("Error", error_msg)
-
-    def open_file(file_path):
-        """Open a file with the default application in a cross-platform way"""
-        file_path = os.path.normpath(file_path)
-        try:
-            if os.name == 'nt':  # Windows
-                os.startfile(file_path)
-            elif os.name == 'posix':  # macOS or Linux
-                if sys.platform == 'darwin':  # macOS
-                    subprocess.run(['open', file_path], check=True)
-                else:  # Linux
-                    subprocess.run(['xdg-open', file_path], check=True)
-            return True
-        except Exception as e:
-            print(f"Error opening file: {str(e)}")
-            return False
-
+    
     def create_menu(self):
         """Create application menu bar"""
         menubar = Menu(self.root)

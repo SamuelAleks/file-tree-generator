@@ -214,33 +214,33 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
                             output.append(f"{content_prefix}└{'─' * 70}")
                         continue
                         
-                        if compact_view:
-                            # Compact view with minimal decorative characters
-                            output.append(f"---[FILE: {item}]---")
-                            for line_num, line in enumerate(lines, 1):
-                                if line_num > max_lines:
-                                    output.append(f"...(+{len(lines)-max_lines} more lines)")
-                                    break
-                                truncated_line = line[:max_line_length] + "..." if len(line) > max_line_length else line
-                                output.append(f"{line_num}:{truncated_line}")
-                            output.append("---[END]---")
-                        else:
-                            # Standard view with full formatting
-                            # Add content header
-                            output.append(f"{content_prefix}┌{'─' * 70}")
-                            output.append(f"{content_prefix}│ FILE CONTENT: {item}")
-                            output.append(f"{content_prefix}├{'─' * 70}")
+                    if compact_view:
+                        # Compact view with minimal decorative characters
+                        output.append(f"---[FILE: {item}]---")
+                        for line_num, line in enumerate(lines, 1):
+                            if line_num > max_lines:
+                                output.append(f"...(+{len(lines)-max_lines} more lines)")
+                                break
+                            truncated_line = line[:max_line_length] + "..." if len(line) > max_line_length else line
+                            output.append(f"{line_num}:{truncated_line}")
+                        output.append("---[END]---")
+                    else:
+                        # Standard view with full formatting
+                        # Add content header
+                        output.append(f"{content_prefix}┌{'─' * 70}")
+                        output.append(f"{content_prefix}│ FILE CONTENT: {item}")
+                        output.append(f"{content_prefix}├{'─' * 70}")
                             
-                            # Add content with line numbers
-                            for line_num, line in enumerate(lines, 1):
-                                if line_num > max_lines:
-                                    output.append(f"{content_prefix}│ ... (truncated after {max_lines} lines, {len(lines)-max_lines} more lines)")
-                                    break
-                                truncated_line = line[:max_line_length] + "..." if len(line) > max_line_length else line
-                                output.append(f"{content_prefix}│ {line_num:4d} │ {truncated_line}")
+                        # Add content with line numbers
+                        for line_num, line in enumerate(lines, 1):
+                            if line_num > max_lines:
+                                output.append(f"{content_prefix}│ ... (truncated after {max_lines} lines, {len(lines)-max_lines} more lines)")
+                                break
+                            truncated_line = line[:max_line_length] + "..." if len(line) > max_line_length else line
+                            output.append(f"{content_prefix}│ {line_num:4d} │ {truncated_line}")
                             
-                            # Add content footer
-                            output.append(f"{content_prefix}└{'─' * 70}")
+                        # Add content footer
+                        output.append(f"{content_prefix}└{'─' * 70}")
                 except Exception as e:
                     if compact_view:
                         output.append(f"---[ERROR: {str(e)}]---")

@@ -2,26 +2,50 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 
 # Get the correct paths
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(SCRIPT_DIR) if os.path.basename(SCRIPT_DIR) == 'build_scripts' else SCRIPT_DIR
 SRC_DIR = os.path.join(ROOT_DIR, "src")
 
+def rmtree_with_retry(folder_path, max_retries=3, retry_delay=1.0):
+    """Remove a directory tree with retry logic for Windows permission issues"""
+    for attempt in range(max_retries):
+        try:
+            if os.path.exists(folder_path):
+                print(f"Removing {folder_path}...")
+                shutil.rmtree(folder_path)
+            return True  # Success
+        except (PermissionError, OSError) as e:
+            print(f"Warning: Failed to remove {folder_path} (attempt {attempt+1}/{max_retries})")
+            print(f"Error: {str(e)}")
+            
+            if attempt < max_retries - 1:
+                print(f"Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+            else:
+                print(f"Warning: Could not remove {folder_path}, continuing anyway.")
+                return False  # Failed after all retries
+    
+    return False
+
 def clean_build_folders():
-    """Remove build artifacts"""
+    """Remove build artifacts with improved error handling"""
     folders_to_remove = ['build', 'dist', '__pycache__']
+    
     for folder in folders_to_remove:
         folder_path = os.path.join(ROOT_DIR, folder)
-        if os.path.exists(folder_path):
-            print(f"Removing {folder_path}...")
-            shutil.rmtree(folder_path)
+        rmtree_with_retry(folder_path)
     
     # Remove .spec file if it exists
     spec_file = os.path.join(ROOT_DIR, "file_tree_gui.spec")
     if os.path.exists(spec_file):
-        print(f"Removing {spec_file}...")
-        os.remove(spec_file)
+        try:
+            print(f"Removing {spec_file}...")
+            os.remove(spec_file)
+        except (PermissionError, OSError) as e:
+            print(f"Warning: Could not remove {spec_file}: {str(e)}")
 
 def build_executable():
     """Build the executable using PyInstaller"""
@@ -93,7 +117,12 @@ def build_executable():
     cmd.append(main_script)
     
     print(f"Running command: {' '.join(cmd)}")
-    subprocess.check_call(cmd)
+    try:
+        subprocess.check_call(cmd)
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"Error building executable: {str(e)}")
+        return False
 
 def rename_executable():
     """Rename the executable to a more user-friendly name"""
@@ -111,9 +140,33 @@ def rename_executable():
     else:
         print(f"Warning: Could not find {source} to rename")
 
+def create_resources_folder():
+    """Create a resources folder if it doesn't exist, and add a default icon"""
+    resources_dir = os.path.join(ROOT_DIR, "resources")
+    if not os.path.exists(resources_dir):
+        print(f"Creating resources directory at {resources_dir}")
+        os.makedirs(resources_dir, exist_ok=True)
+    
+    icon_path = os.path.join(resources_dir, "icon.ico")
+    if not os.path.exists(icon_path):
+        print("Creating a placeholder icon.ico file")
+        # Simple placeholder - just an empty file
+        with open(icon_path, 'w') as f:
+            f.write("")
+
 if __name__ == "__main__":
+    print("Starting build process for File Tree Generator...")
+    
+    # Ensure resources folder exists
+    create_resources_folder()
+    
+    # Clean build artifacts
     clean_build_folders()
-    build_executable()
-    rename_executable()
-    print("\nBuild completed successfully!")
-    print("Executable is located in the 'dist' folder.")
+    
+    # Build the executable
+    if build_executable():
+        rename_executable()
+        print("\nBuild completed successfully!")
+        print("Executable is located in the 'dist' folder.")
+    else:
+        print("\nBuild failed. Please check the errors above.")
