@@ -14,19 +14,30 @@ GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 GITHUB_RELEASE_URL = f"https://github.com/{GITHUB_REPO}/releases/latest"
 
 def get_latest_version():
-    """Get the latest version from GitHub releases"""
+    """Get the latest version from GitHub releases with improved error handling"""
     try:
         # Set User-Agent to avoid GitHub API rate limiting
         headers = {'User-Agent': 'FileTreeGenerator UpdateChecker'}
         req = urllib.request.Request(GITHUB_API_URL, headers=headers)
         
-        with urllib.request.urlopen(req, timeout=5) as response:
-            data = json.loads(response.read().decode())
-            # GitHub release tag format: "v1.0.0"
-            latest_version = data.get('tag_name', '').lstrip('v')
-            return latest_version, data.get('html_url', GITHUB_RELEASE_URL)
+        # Add timeout and better error handling
+        try:
+            with urllib.request.urlopen(req, timeout=5) as response:
+                data = json.loads(response.read().decode())
+                # GitHub release tag format: "v1.0.0"
+                latest_version = data.get('tag_name', '').lstrip('v')
+                return latest_version, data.get('html_url', GITHUB_RELEASE_URL)
+        except urllib.error.URLError as e:
+            print(f"Network error checking for updates: {str(e)}")
+            return None, None
+        except json.JSONDecodeError:
+            print("Error parsing GitHub API response")
+            return None, None
+        except timeout:
+            print("Timeout while checking for updates")
+            return None, None
     except Exception as e:
-        print(f"Error checking for updates: {str(e)}")
+        print(f"Unexpected error checking for updates: {str(e)}")
         return None, None
 
 def is_update_available():
@@ -54,7 +65,8 @@ def check_for_updates(silent=False, parent=None):
     """
     update_available, download_url = is_update_available()
     
-    if update_available:
+    if update_available and download_url:
+        latest_version, _ = get_latest_version()
         if messagebox.askyesno(
             "Update Available",
             f"A new version of File Tree Generator is available!\n\n"
@@ -64,6 +76,7 @@ def check_for_updates(silent=False, parent=None):
             parent=parent
         ):
             webbrowser.open(download_url)
+        return True
     elif not silent:
         messagebox.showinfo(
             "No Updates",
@@ -71,7 +84,7 @@ def check_for_updates(silent=False, parent=None):
             parent=parent
         )
     
-    return update_available
+    return False
 
 # You can integrate this function in your application's main menu
 def add_update_check_to_menu(menu):

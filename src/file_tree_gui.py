@@ -103,6 +103,14 @@ class FileTreeGeneratorApp:
         
         # Generate button
         ttk.Button(buttons_frame, text="Generate File Tree", command=self.generate_file_tree).pack(side=tk.RIGHT, padx=5)
+
+        # Export format options
+        ttk.Label(advanced_frame, text="Export Format:").grid(row=1, column=2, sticky=tk.W, padx=(20, 5), pady=5)
+        self.export_format_var = tk.StringVar(value=self.config.get('export_format', 'txt'))
+        export_format_combo = ttk.Combobox(advanced_frame, textvariable=self.export_format_var, width=10)
+        export_format_combo['values'] = ('txt', 'html', 'markdown', 'json')
+        export_format_combo['state'] = 'readonly'
+        export_format_combo.grid(row=1, column=3, sticky=tk.W)
         
         # Status log
         log_frame = ttk.LabelFrame(main_frame, text="Status Log", padding="10")
@@ -162,7 +170,8 @@ class FileTreeGeneratorApp:
                 'priority_files': priority_files,
                 'max_lines': self.max_lines_var.get(),
                 'max_line_length': self.max_line_length_var.get(),
-                'compact_view': self.compact_view_var.get()
+                'compact_view': self.compact_view_var.get(),
+                'export_format': self.export_format_var.get()
             }
             
             # Save config
@@ -183,41 +192,62 @@ class FileTreeGeneratorApp:
             # Get values from UI
             root_dir = self.root_dir_var.get()
             output_file = self.output_file_var.get()
-            
+            export_format = self.export_format_var.get()
+        
             if not root_dir or not os.path.isdir(root_dir):
                 messagebox.showerror("Error", "Please select a valid root directory")
                 return
-                
+            
             if not output_file:
                 messagebox.showerror("Error", "Please specify an output file path")
                 return
-            
+        
+            # Ensure output file has the correct extension
+            output_base, output_ext = os.path.splitext(output_file)
+            if export_format == 'txt' and output_ext.lower() != '.txt':
+                output_file = output_base + '.txt'
+            elif export_format == 'html' and output_ext.lower() != '.html':
+                output_file = output_base + '.html'
+            elif export_format == 'markdown' and output_ext.lower() not in ['.md', '.markdown']:
+                output_file = output_base + '.md'
+            elif export_format == 'json' and output_ext.lower() != '.json':
+                output_file = output_base + '.json'
+        
+            # Update output file path in UI
+            self.output_file_var.set(output_file)
+        
             # Parse extensions
             extensions_str = self.extensions_var.get().strip()
             if not extensions_str:
                 messagebox.showerror("Error", "Please specify at least one file extension")
                 return
-                
-            extensions = set(ext if ext.startswith(".") else f".{ext}" for ext in extensions_str.split())
             
+            extensions = set(ext if ext.startswith(".") else f".{ext}" for ext in extensions_str.split())
+        
             # Parse blacklists
             blacklist_folders = set(self.blacklist_folders_var.get().split())
             blacklist_files = set(self.blacklist_files_var.get().split())
-            
+        
             # Parse priority lists
             priority_folders = [folder for folder in self.priority_folders_var.get().split() if folder]
             priority_files = [file for file in self.priority_files_var.get().split() if file]
-            
+        
             self.log(f"Starting file tree generation from {root_dir}")
             self.log(f"Included extensions: {', '.join(extensions)}")
             self.log(f"Blacklisted folders: {', '.join(blacklist_folders)}")
             self.log(f"Blacklisted files: {', '.join(blacklist_files)}")
-            
+            self.log(f"Export format: {export_format}")
+        
+            # Create a temporary text output file
+            temp_output = output_file
+            if export_format != 'txt':
+                temp_output = output_file + '.temp.txt'
+        
             # Generate file tree
             result = create_file_tree(
                 root_dir, 
                 extensions, 
-                output_file,
+                temp_output,
                 blacklist_folders=blacklist_folders,
                 blacklist_files=blacklist_files,
                 max_lines=self.max_lines_var.get(),
@@ -226,18 +256,51 @@ class FileTreeGeneratorApp:
                 priority_folders=priority_folders,
                 priority_files=priority_files
             )
+        
+            # Convert to desired format if needed
+            if export_format != 'txt':
+                with open(temp_output, 'r', encoding='utf-8') as f:
+                    output_lines = f.read().splitlines()
             
+                if export_format == 'html':
+                    export_as_html(output_lines, output_file)
+                elif export_format == 'markdown':
+                    export_as_markdown(output_lines, output_file)
+                elif export_format == 'json':
+                    export_as_json(output_lines, output_file)
+            
+                # Clean up temporary file
+                os.remove(temp_output)
+            
+                result = f"File tree generated successfully in {export_format.upper()} format at {os.path.abspath(output_file)}"
+        
             self.log(result)
             messagebox.showinfo("Success", result)
-            
+        
             # Ask if user wants to open the file
             if messagebox.askyesno("Open File", "Do you want to open the generated file?"):
-                os.startfile(os.path.normpath(output_file)) if os.name == 'nt' else os.system(f'open "{output_file}"')
-                
+                open_file(output_file)
+            
         except Exception as e:
             error_msg = f"Error: {str(e)}"
             self.log(error_msg)
             messagebox.showerror("Error", error_msg)
+
+    def open_file(file_path):
+        """Open a file with the default application in a cross-platform way"""
+        file_path = os.path.normpath(file_path)
+        try:
+            if os.name == 'nt':  # Windows
+                os.startfile(file_path)
+            elif os.name == 'posix':  # macOS or Linux
+                if sys.platform == 'darwin':  # macOS
+                    subprocess.run(['open', file_path], check=True)
+                else:  # Linux
+                    subprocess.run(['xdg-open', file_path], check=True)
+            return True
+        except Exception as e:
+            print(f"Error opening file: {str(e)}")
+            return False
 
     def create_menu(self):
         """Create application menu bar"""
@@ -265,40 +328,40 @@ class FileTreeGeneratorApp:
         # Add update check to Help menu
         add_update_check_to_menu(help_menu)
         
-def show_about(self):
-    """Show about dialog"""
-    about_window = tk.Toplevel(self.root)
-    about_window.title("About File Tree Generator")
-    about_window.geometry("400x300")
-    about_window.resizable(False, False)
-    about_window.transient(self.root)
-    about_window.grab_set()
+    def show_about(self):
+        """Show about dialog"""
+        about_window = tk.Toplevel(self.root)
+        about_window.title("About File Tree Generator")
+        about_window.geometry("400x300")
+        about_window.resizable(False, False)
+        about_window.transient(self.root)
+        about_window.grab_set()
     
-    # About content
-    ttk.Label(about_window, text="File Tree Generator", font=("Helvetica", 16, "bold")).pack(pady=10)
-    ttk.Label(about_window, text=f"Version {update_checker.CURRENT_VERSION}").pack()
-    ttk.Label(about_window, text="© 2025 Paape Companies").pack(pady=5)
-    ttk.Label(about_window, text="A tool to create visual representations of directory trees").pack(pady=10)
+        # About content
+        ttk.Label(about_window, text="File Tree Generator", font=("Helvetica", 16, "bold")).pack(pady=10)
+        ttk.Label(about_window, text=f"Version {CURRENT_VERSION}").pack()
+        ttk.Label(about_window, text="© 2025 Paape Companies").pack(pady=5)
+        ttk.Label(about_window, text="A tool to create visual representations of directory trees").pack(pady=10)
     
-    # GitHub link
-    github_frame = ttk.Frame(about_window)
-    github_frame.pack(pady=10)
-    ttk.Label(github_frame, text="GitHub: ").pack(side=tk.LEFT)
-    github_link = ttk.Label(github_frame, text="github.com/SamuelAleks/file-tree-generator", 
-                            foreground="blue", cursor="hand2")
-    github_link.pack(side=tk.LEFT)
-    github_link.bind("<Button-1>", lambda e: webbrowser.open(f"https://github.com/{update_checker.GITHUB_REPO}"))
+        # GitHub link
+        github_frame = ttk.Frame(about_window)
+        github_frame.pack(pady=10)
+        ttk.Label(github_frame, text="GitHub: ").pack(side=tk.LEFT)
+        github_link = ttk.Label(github_frame, text="github.com/SamuelAleks/file-tree-generator", 
+                                foreground="blue", cursor="hand2")
+        github_link.pack(side=tk.LEFT)
+        github_link.bind("<Button-1>", lambda e: webbrowser.open(f"https://github.com/{GITHUB_REPO}"))
     
-    # Close button
-    ttk.Button(about_window, text="Close", command=about_window.destroy).pack(pady=10)
+        # Close button
+        ttk.Button(about_window, text="Close", command=about_window.destroy).pack(pady=10)
     
-    # Center the window
-    about_window.update_idletasks()
-    width = about_window.winfo_width()
-    height = about_window.winfo_height()
-    x = (about_window.winfo_screenwidth() // 2) - (width // 2)
-    y = (about_window.winfo_screenheight() // 2) - (height // 2)
-    about_window.geometry(f"{width}x{height}+{x}+{y}")
+        # Center the window
+        about_window.update_idletasks()
+        width = about_window.winfo_width()
+        height = about_window.winfo_height()
+        x = (about_window.winfo_screenwidth() // 2) - (width // 2)
+        y = (about_window.winfo_screenheight() // 2) - (height // 2)
+        about_window.geometry(f"{width}x{height}+{x}+{y}")
 
 if __name__ == "__main__":
     root = tk.Tk()
