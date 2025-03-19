@@ -36,12 +36,18 @@ def parse_args():
     parser.add_argument("--recursive", "-r", action="store_true",
                         help="Recursively process all subdirectories")
     parser.add_argument("--verbose", "-v", action="store_true",
-                        help="Show verbose output during processing")
+                    help="Show verbose output during processing")
+    parser.add_argument("--ultra-compact", "-uc", action="store_true",
+                        help="Use ultra-compact view for maximum token efficiency")
     
     return parser.parse_args()
 
+"""
+Modifications to file_tree_generator.py to add an ultra-compact export mode
+that maximizes token efficiency while preserving all data.
+"""
 def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, blacklist_files=None, 
-                  max_lines=1000, max_line_length=300, compact_view=False,
+                  max_lines=1000, max_line_length=300, compact_view=False, ultra_compact_view=False,
                   priority_folders=None, priority_files=None, referenced_files=None):
     """
     Generate a text-based visual representation of a directory tree and file contents.
@@ -55,6 +61,7 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
     max_lines (int): Maximum number of lines to display per file
     max_line_length (int): Maximum length of each line to display
     compact_view (bool): Use compact view for cleaner output
+    ultra_compact_view (bool): Use ultra-compact view for maximum token efficiency
     priority_folders (list): Folders to prioritize in the output
     priority_files (list): Files to prioritize in the output
     referenced_files (set): Set of files that are referenced (for reference tracking mode)
@@ -65,19 +72,32 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
     priority_folders = priority_folders or []
     priority_files = priority_files or []
     
+    # Use ultra-compact mode format for highest efficiency
+    # (overrides compact_view if both are True)
+    if ultra_compact_view:
+        compact_view = False
+    
     # Check if we're in reference tracking mode
     reference_tracking_mode = referenced_files is not None
     
     # Initialize the output string
     output = []
-    output.append(f"File Structure - {os.path.abspath(root_dir)}")
-    output.append(f"Scan Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    output.append(f"Extensions: {', '.join(extensions)}")
     
-    if reference_tracking_mode:
-        output.append(f"Reference Tracking: Enabled (tracking {len(referenced_files)} files)")
+    # Minimal header in ultra-compact mode
+    if ultra_compact_view:
+        output.append(f"TREE:{os.path.abspath(root_dir)}")
+        output.append(f"DATE:{datetime.datetime.now().strftime('%Y-%m-%d')}")
+        output.append(f"EXT:{','.join(extensions)}")
+        if reference_tracking_mode:
+            output.append(f"REF:{len(referenced_files)}")
+    else:
+        output.append(f"File Structure - {os.path.abspath(root_dir)}")
+        output.append(f"Scan Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        output.append(f"Extensions: {', '.join(extensions)}")
+        if reference_tracking_mode:
+            output.append(f"Reference Tracking: Enabled (tracking {len(referenced_files)} files)")
+        output.append("=" * 80)
     
-    output.append("=" * 80)
     output.append("")
     
     relevant_files_cache = {}
@@ -133,12 +153,18 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
             if not has_relevant_files(current_dir, extensions):
                 return False
 
-            # Add directory to tree
+            # Add directory to tree with simpler format in ultra-compact mode
             rel_path = os.path.relpath(current_dir, root_dir)
             if rel_path == ".":
-                output.append(f"{prefix}📁 {dir_name} (root)")
+                if ultra_compact_view:
+                    output.append(f"{prefix}D {dir_name} (root)")
+                else:
+                    output.append(f"{prefix}📁 {dir_name} (root)")
             else:
-                output.append(f"{prefix}📁 {dir_name}")
+                if ultra_compact_view:
+                    output.append(f"{prefix}D {dir_name}")
+                else:
+                    output.append(f"{prefix}📁 {dir_name}")
 
             # Process all items in current directory
             items = sorted(os.listdir(current_dir))
@@ -184,9 +210,13 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
                 # Determine if this is the last item in the directory
                 is_last = (i == len(dirs) - 1 and len(files) == 0)
                 
-                # Update prefix for child items
-                child_prefix = prefix + ("└── " if is_last else "├── ")
-                next_prefix = prefix + ("    " if is_last else "│   ")
+                # Update prefix for child items - simpler in ultra-compact mode
+                if ultra_compact_view:
+                    child_prefix = prefix + ("L " if is_last else "| ")
+                    next_prefix = prefix + ("  " if is_last else "| ")
+                else:
+                    child_prefix = prefix + ("└── " if is_last else "├── ")
+                    next_prefix = prefix + ("    " if is_last else "│   ")
                 
                 # Recursively process subdirectory
                 process_directory(full_path, next_prefix)
@@ -198,11 +228,15 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
                 # Determine if this is the last item
                 is_last = (i == len(files) - 1)
                 
-                # Update prefix for file
-                file_prefix = prefix + ("└── " if is_last else "├── ")
-                content_prefix = prefix + ("    " if is_last else "│   ")
+                # Update prefix for file - simpler in ultra-compact mode
+                if ultra_compact_view:
+                    file_prefix = prefix + ("L " if is_last else "| ")
+                    content_prefix = prefix + ("  " if is_last else "| ")
+                else:
+                    file_prefix = prefix + ("└── " if is_last else "├── ")
+                    content_prefix = prefix + ("    " if is_last else "│   ")
                 
-                # Add file to tree
+                # Add file to tree with minimal metadata in ultra-compact mode
                 file_size = os.path.getsize(full_path)
                 last_modified = datetime.datetime.fromtimestamp(
                     os.path.getmtime(full_path)
@@ -211,16 +245,26 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
                 # Check if this file is referenced (for reference tracking mode)
                 is_referenced = reference_tracking_mode and full_path in referenced_files
                 
-                # Add special marker for referenced files
-                if reference_tracking_mode:
-                    if is_referenced:
-                        output.append(f"{file_prefix}📄 {item} ({format_size(file_size)}, {last_modified}) [REFERENCED]")
+                # Add special marker for referenced files with minimal format in ultra-compact mode
+                if ultra_compact_view:
+                    size_str = format_size(file_size)
+                    if reference_tracking_mode:
+                        if is_referenced:
+                            output.append(f"{file_prefix}F {item} [{size_str}]*")  # * indicates referenced
+                        else:
+                            output.append(f"{file_prefix}F {item} [{size_str}]")
+                    else:
+                        output.append(f"{file_prefix}F {item} [{size_str}]")
+                else:
+                    if reference_tracking_mode:
+                        if is_referenced:
+                            output.append(f"{file_prefix}📄 {item} ({format_size(file_size)}, {last_modified}) [REFERENCED]")
+                        else:
+                            output.append(f"{file_prefix}📄 {item} ({format_size(file_size)}, {last_modified})")
                     else:
                         output.append(f"{file_prefix}📄 {item} ({format_size(file_size)}, {last_modified})")
-                else:
-                    output.append(f"{file_prefix}📄 {item} ({format_size(file_size)}, {last_modified})")
                 
-                # Add file content with formatting based on compact_view flag
+                # Add file content with formatting based on view mode
                 try:
                     # Skip content for non-referenced files when in reference tracking mode
                     if reference_tracking_mode and not is_referenced:
@@ -230,7 +274,9 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
                     if not success:
                         # Make sure content_prefix is not None (safety check)
                         prefix_to_use = content_prefix if content_prefix is not None else ""
-                        if compact_view:
+                        if ultra_compact_view:
+                            output.append(f"{prefix_to_use}ERR:{error}")
+                        elif compact_view:
                             output.append(f"{prefix_to_use}---[ERROR: {error}]---")
                         else:
                             output.append(f"{prefix_to_use}│ ERROR: {error}")
@@ -239,7 +285,21 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
                         
                     # Make sure content_prefix is not None (safety check)
                     prefix_to_use = content_prefix if content_prefix is not None else ""
-                    if compact_view:
+                    if ultra_compact_view:
+                        # Ultra-compact view with absolute minimal formatting
+                        # Just display line number and content with no decorative elements
+                        is_small_file = len(lines) <= 3
+                        for line_num, line in enumerate(lines, 1):
+                            if line_num > max_lines:
+                                output.append(f"{prefix_to_use}+{len(lines)-max_lines}more")
+                                break
+                            truncated_line = line[:max_line_length] + ".." if len(line) > max_line_length else line
+                            # For very small files, skip line numbers to save space
+                            if is_small_file:
+                                output.append(f"{prefix_to_use}{truncated_line}")
+                            else:
+                                output.append(f"{prefix_to_use}{line_num}:{truncated_line}")
+                    elif compact_view:
                         # Compact view with minimal decorative characters
                         output.append(f"{prefix_to_use}---[FILE: {item}]---")
                         for line_num, line in enumerate(lines, 1):
@@ -269,7 +329,9 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
                 except Exception as e:
                     # Make sure content_prefix is not None (safety check)
                     prefix_to_use = content_prefix if content_prefix is not None else ""
-                    if compact_view:
+                    if ultra_compact_view:
+                        output.append(f"{prefix_to_use}ERR:{str(e)[:50]}")
+                    elif compact_view:
                         output.append(f"{prefix_to_use}---[ERROR: {str(e)}]---")
                     else:
                         output.append(f"{prefix_to_use}│ ERROR reading file: {str(e)}")
@@ -278,10 +340,16 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
             return True
 
         except PermissionError:
-            output.append(f"{prefix}❌ Permission denied accessing {current_dir}")
+            if ultra_compact_view:
+                output.append(f"{prefix}! Permission denied: {current_dir}")
+            else:
+                output.append(f"{prefix}❌ Permission denied accessing {current_dir}")
             return False
         except Exception as e:
-            output.append(f"{prefix}❌ Error processing {current_dir}: {str(e)}")
+            if ultra_compact_view:
+                output.append(f"{prefix}! Error: {str(e)[:50]}")
+            else:
+                output.append(f"{prefix}❌ Error processing {current_dir}: {str(e)}")
             return False
 
     def format_size(size_bytes):

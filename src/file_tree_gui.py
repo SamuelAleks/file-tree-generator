@@ -22,7 +22,7 @@ class FileTreeGeneratorApp:
     def __init__(self, root):
         self.root = root
         self.root.title("File Tree Generator")
-        self.root.geometry("800x600")
+        self.root.geometry("800x1000")
         
         # Load saved configuration
         self.config = load_config()
@@ -144,6 +144,11 @@ class FileTreeGeneratorApp:
         self.compact_view_var = tk.BooleanVar(value=self.config.get('compact_view', False))
         ttk.Checkbutton(advanced_frame, text="Compact View", variable=self.compact_view_var).grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=5)
         
+         # Ultra-compact view checkbox
+        self.ultra_compact_view_var = tk.BooleanVar(value=self.config.get('ultra_compact_view', False))
+        ttk.Checkbutton(advanced_frame, text="Ultra-Compact View", variable=self.ultra_compact_view_var, 
+                        command=self.toggle_compact_options).grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=5)
+
         # Create buttons frame
         buttons_frame = ttk.Frame(main_frame)
         buttons_frame.pack(fill=tk.X, pady=10)
@@ -171,6 +176,12 @@ class FileTreeGeneratorApp:
         self.log_text.config(state=tk.DISABLED)
         # Check for updates at startup (non-blocking)
         check_updates_at_startup(self.root)
+
+    def toggle_compact_options(self):
+        """Disable compact view if ultra-compact is enabled"""
+        if self.ultra_compact_view_var.get():
+            self.compact_view_var.set(False)
+            # Could disable the compact view checkbox here
         
     def browse_root_dir(self):
         directory = filedialog.askdirectory(title="Select Root Directory")
@@ -374,6 +385,7 @@ class FileTreeGeneratorApp:
                 max_lines=self.max_lines_var.get(),
                 max_line_length=self.max_line_length_var.get(),
                 compact_view=self.compact_view_var.get(),
+                ultra_compact_view=self.ultra_compact_view_var.get(),
                 priority_folders=priority_folders,
                 priority_files=priority_files,
                 referenced_files=referenced_files
