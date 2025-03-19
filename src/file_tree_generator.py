@@ -53,12 +53,19 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
     blacklist_files (set): Files to exclude
     max_lines (int): Maximum number of lines to display per file
     max_line_length (int): Maximum length of each line to display
+    compact_view (bool): Use compact view for cleaner output
+    priority_folders (list): Folders to prioritize in the output
+    priority_files (list): Files to prioritize in the output
     """
     # Initialize lists
     blacklist_folders = set(blacklist_folders or [])
     blacklist_files = set(blacklist_files or [])
     priority_folders = priority_folders or []
     priority_files = priority_files or []
+    
+    # Initialize reference tracking variables
+    referenced_files = None  # We'll use this to track referenced files
+    reference_tracking_mode = False
     
     # Initialize the output string
     output = []
@@ -100,6 +107,47 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
         except (PermissionError, OSError):
             relevant_files_cache[dir_path] = False
             return False
+
+    def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, blacklist_files=None, 
+                  max_lines=1000, max_line_length=300, compact_view=False,
+                  priority_folders=None, priority_files=None, referenced_files=None):
+        """
+        Generate a text-based visual representation of a directory tree and file contents.
+    
+        Parameters:
+        root_dir (str): Root directory to start scanning
+        extensions (set): File extensions to include
+        output_file (str): Output file path
+        blacklist_folders (set): Folders to exclude
+        blacklist_files (set): Files to exclude
+        max_lines (int): Maximum number of lines to display per file
+        max_line_length (int): Maximum length of each line to display
+        compact_view (bool): Use compact view for cleaner output
+        priority_folders (list): Folders to prioritize in the output
+        priority_files (list): Files to prioritize in the output
+        referenced_files (set): Set of files that are referenced (for reference tracking mode)
+        """
+        # Initialize lists
+        blacklist_folders = set(blacklist_folders or [])
+        blacklist_files = set(blacklist_files or [])
+        priority_folders = priority_folders or []
+        priority_files = priority_files or []
+    
+        # Check if we're in reference tracking mode
+        reference_tracking_mode = referenced_files is not None
+    
+        # Initialize the output string
+        output = []
+        output.append(f"File Structure - {os.path.abspath(root_dir)}")
+        output.append(f"Scan Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        output.append(f"Extensions: {', '.join(extensions)}")
+    
+        if reference_tracking_mode:
+            output.append(f"Reference Tracking: Enabled (tracking {len(referenced_files)} files)")
+    
+        output.append("=" * 80)
+        output.append("")
+
 
     def process_directory(current_dir, prefix=""):
         try:
@@ -201,10 +249,24 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
                     os.path.getmtime(full_path)
                 ).strftime("%Y-%m-%d %H:%M:%S")
                 
-                output.append(f"{file_prefix}📄 {item} ({format_size(file_size)}, {last_modified})")
+                # Check if this file is referenced (for reference tracking mode)
+                is_referenced = reference_tracking_mode and full_path in referenced_files
+                
+                # Add special marker for referenced files
+                if reference_tracking_mode:
+                    if is_referenced:
+                        output.append(f"{file_prefix}📄 {item} ({format_size(file_size)}, {last_modified}) [REFERENCED]")
+                    else:
+                        output.append(f"{file_prefix}📄 {item} ({format_size(file_size)}, {last_modified})")
+                else:
+                    output.append(f"{file_prefix}📄 {item} ({format_size(file_size)}, {last_modified})")
                 
                 # Add file content with formatting based on compact_view flag
                 try:
+                    # Skip content for non-referenced files when in reference tracking mode
+                    if reference_tracking_mode and not is_referenced:
+                        continue
+                    
                     success, lines, error = safe_read_file(full_path, max_lines)
                     if not success:
                         if compact_view:

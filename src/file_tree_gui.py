@@ -5,6 +5,8 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, Menu
 import webbrowser
 from tkinter.scrolledtext import ScrolledText
+from file_selector import FileSelector
+from reference_tracking import ReferenceTrackingManager
 
 # Import your existing function and config utilities
 from file_tree_generator import (
@@ -86,6 +88,47 @@ class FileTreeGeneratorApp:
         # Advanced settings frame
         advanced_frame = ttk.LabelFrame(main_frame, text="Advanced Settings", padding="10")
         advanced_frame.pack(fill=tk.X, pady=5)
+
+        # Reference tracking frame
+        reference_frame = ttk.LabelFrame(main_frame, text="Reference Tracking", padding="10")
+        reference_frame.pack(fill=tk.X, pady=5)
+
+        # Enable reference tracking checkbox
+        self.reference_tracking_var = tk.BooleanVar(value=self.config.get('reference_tracking', False))
+        self.reference_tracking_check = ttk.Checkbutton(reference_frame, text="Enable Reference Tracking", 
+                       variable=self.reference_tracking_var,
+                       command=self.toggle_reference_options)
+        self.reference_tracking_check.grid(row=0, column=0, sticky=tk.W, pady=5)
+
+        # Reference depth options
+        ttk.Label(reference_frame, text="Reference Depth:").grid(row=0, column=1, sticky=tk.W, padx=(20, 5), pady=5)
+        self.reference_depth_var = tk.IntVar(value=self.config.get('reference_depth', 1))
+        self.depth_spinbox = ttk.Spinbox(reference_frame, from_=1, to=10, increment=1, 
+                                  textvariable=self.reference_depth_var, width=5)
+        self.depth_spinbox.grid(row=0, column=2, sticky=tk.W)
+
+        # Unlimited depth checkbox
+        self.unlimited_depth_var = tk.BooleanVar(value=self.config.get('unlimited_depth', False))
+        self.unlimited_depth_check = ttk.Checkbutton(reference_frame, text="Unlimited Depth", 
+                                              variable=self.unlimited_depth_var,
+                                              command=self.toggle_depth_spinner)
+        self.unlimited_depth_check.grid(row=0, column=3, sticky=tk.W, padx=5)
+
+        # Selected files display
+        ttk.Label(reference_frame, text="Selected Files:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        self.selected_files_var = tk.StringVar(value="No files selected")
+        ttk.Label(reference_frame, textvariable=self.selected_files_var).grid(row=1, column=1, 
+                                                                           columnspan=2, sticky=tk.W)
+
+        # Select files button
+        self.select_files_button = ttk.Button(reference_frame, text="Select Files...", 
+                                           command=self.select_reference_files)
+        self.select_files_button.grid(row=1, column=3, sticky=tk.W, padx=5)
+
+        # Initialize reference tracking state
+        self.selected_files = []
+        self.toggle_reference_options()
+        self.toggle_depth_spinner()
         
         # Max lines
         ttk.Label(advanced_frame, text="Max Lines:").grid(row=0, column=0, sticky=tk.W, pady=5)
@@ -159,13 +202,13 @@ class FileTreeGeneratorApp:
             # Get current values from UI
             extensions_str = self.extensions_var.get().strip()
             extensions = [ext if ext.startswith(".") else f".{ext}" for ext in extensions_str.split()]
-            
+        
             blacklist_folders = self.blacklist_folders_var.get().split()
             blacklist_files = self.blacklist_files_var.get().split()
-            
+        
             priority_folders = [folder for folder in self.priority_folders_var.get().split() if folder]
             priority_files = [file for file in self.priority_files_var.get().split() if file]
-            
+        
             # Create config dictionary
             config = {
                 'root_dir': self.root_dir_var.get(),
@@ -178,9 +221,12 @@ class FileTreeGeneratorApp:
                 'max_lines': self.max_lines_var.get(),
                 'max_line_length': self.max_line_length_var.get(),
                 'compact_view': self.compact_view_var.get(),
-                'export_format': self.export_format_var.get()
+                'export_format': self.export_format_var.get(),
+                'reference_tracking': self.reference_tracking_var.get(),
+                'reference_depth': self.reference_depth_var.get(),
+                'unlimited_depth': self.unlimited_depth_var.get()
             }
-            
+        
             # Save config
             if save_config(config):
                 self.log("Configuration saved successfully as default settings.")
@@ -188,7 +234,7 @@ class FileTreeGeneratorApp:
             else:
                 self.log("Failed to save configuration.")
                 messagebox.showerror("Error", "Failed to save configuration.")
-                
+            
         except Exception as e:
             error_msg = f"Error saving configuration: {str(e)}"
             self.log(error_msg)
@@ -216,15 +262,15 @@ class FileTreeGeneratorApp:
             root_dir = self.root_dir_var.get()
             output_file = self.output_file_var.get()
             export_format = self.export_format_var.get()
-        
+    
             if not root_dir or not os.path.isdir(root_dir):
                 messagebox.showerror("Error", "Please select a valid root directory")
                 return
-            
+        
             if not output_file:
                 messagebox.showerror("Error", "Please specify an output file path")
                 return
-        
+    
             # Ensure output file has the correct extension
             output_base, output_ext = os.path.splitext(output_file)
             if export_format == 'txt' and output_ext.lower() != '.txt':
@@ -235,38 +281,76 @@ class FileTreeGeneratorApp:
                 output_file = output_base + '.md'
             elif export_format == 'json' and output_ext.lower() != '.json':
                 output_file = output_base + '.json'
-        
+    
             # Update output file path in UI
             self.output_file_var.set(output_file)
-        
+    
             # Parse extensions
             extensions_str = self.extensions_var.get().strip()
             if not extensions_str:
                 messagebox.showerror("Error", "Please specify at least one file extension")
                 return
-            
-            extensions = set(ext if ext.startswith(".") else f".{ext}" for ext in extensions_str.split())
         
+            extensions = set(ext if ext.startswith(".") else f".{ext}" for ext in extensions_str.split())
+    
             # Parse blacklists
             blacklist_folders = set(self.blacklist_folders_var.get().split())
             blacklist_files = set(self.blacklist_files_var.get().split())
-        
+    
             # Parse priority lists
             priority_folders = [folder for folder in self.priority_folders_var.get().split() if folder]
             priority_files = [file for file in self.priority_files_var.get().split() if file]
-        
+    
             self.log(f"Starting file tree generation from {root_dir}")
             self.log(f"Included extensions: {', '.join(extensions)}")
             self.log(f"Blacklisted folders: {', '.join(blacklist_folders)}")
             self.log(f"Blacklisted files: {', '.join(blacklist_files)}")
             self.log(f"Export format: {export_format}")
         
+            # Handle reference tracking if enabled - but do this separately
+            # from the file tree generation itself
+            if self.reference_tracking_var.get():
+                if not self.selected_files:
+                    messagebox.showerror("Error", "Please select at least one file for reference tracking")
+                    return
+            
+                self.log(f"Reference tracking enabled with {len(self.selected_files)} selected files")
+            
+                # Determine reference depth
+                if self.unlimited_depth_var.get():
+                    depth = float('inf')
+                    self.log("Using unlimited reference depth")
+                else:
+                    depth = self.reference_depth_var.get()
+                    self.log(f"Using reference depth of {depth}")
+            
+                # Parse and analyze C# files
+                self.log("Analyzing C# references...")
+                reference_manager = ReferenceTrackingManager(root_dir, log_callback=self.log)
+                reference_manager.parse_directory()
+            
+                # Find related files
+                referenced_files = reference_manager.find_related_files(self.selected_files, depth)
+            
+                # Add reference summary to log
+                summary = reference_manager.generate_reference_summary(referenced_files)
+                self.log("\n" + summary)
+            
+                # Create a file in the output directory with the referenced files
+                reference_list_file = output_base + "_references.txt"
+                with open(reference_list_file, 'w', encoding='utf-8') as f:
+                    f.write("# Referenced Files\n\n")
+                    for file_path in sorted(referenced_files):
+                        f.write(f"- {os.path.relpath(file_path, root_dir)}\n")
+            
+                self.log(f"Saved list of referenced files to {reference_list_file}")
+        
             # Create a temporary text output file
             temp_output = output_file
             if export_format != 'txt':
                 temp_output = output_file + '.temp.txt'
-        
-            # Generate file tree
+    
+            # Generate file tree - with standard parameters
             result = create_file_tree(
                 root_dir, 
                 extensions, 
@@ -279,31 +363,31 @@ class FileTreeGeneratorApp:
                 priority_folders=priority_folders,
                 priority_files=priority_files
             )
-        
+    
             # Convert to desired format if needed
             if export_format != 'txt':
                 with open(temp_output, 'r', encoding='utf-8') as f:
                     output_lines = f.read().splitlines()
-            
+        
                 if export_format == 'html':
                     export_as_html(output_lines, output_file)
                 elif export_format == 'markdown':
                     export_as_markdown(output_lines, output_file)
                 elif export_format == 'json':
                     export_as_json(output_lines, output_file)
-            
+        
                 # Clean up temporary file
                 os.remove(temp_output)
-            
-                result = f"File tree generated successfully in {export_format.upper()} format at {os.path.abspath(output_file)}"
         
+                result = f"File tree generated successfully in {export_format.upper()} format at {os.path.abspath(output_file)}"
+    
             self.log(result)
             messagebox.showinfo("Success", result)
-        
+    
             # Ask if user wants to open the file
             if messagebox.askyesno("Open File", "Do you want to open the generated file?"):
                 self.open_file(output_file)
-            
+        
         except Exception as e:
             error_msg = f"Error: {str(e)}"
             self.log(error_msg)
@@ -334,6 +418,56 @@ class FileTreeGeneratorApp:
         
         # Add update check to Help menu
         add_update_check_to_menu(help_menu)
+
+    def toggle_reference_options(self):
+        """Enable or disable reference tracking options based on checkbox"""
+        state = "normal" if self.reference_tracking_var.get() else "disabled"
+    
+        # Instead of using grid_slaves, directly reference the widgets we need to enable/disable
+        try:
+            # Store references to widgets that need to be enabled/disabled
+            if hasattr(self, 'depth_spinbox'):  
+                self.depth_spinbox.configure(state=state)
+            if hasattr(self, 'unlimited_depth_check'):
+                self.unlimited_depth_check.configure(state=state)
+            if hasattr(self, 'select_files_button'):
+                self.select_files_button.configure(state=state)
+        except Exception as e:
+            print(f"Error in toggle_reference_options: {str(e)}")
+
+    def toggle_depth_spinner(self):
+        """Enable or disable depth spinner based on unlimited depth checkbox"""
+        try:
+            if hasattr(self, 'depth_spinbox'):
+                if self.unlimited_depth_var.get() and self.reference_tracking_var.get():
+                    self.depth_spinbox.configure(state="disabled")
+                elif self.reference_tracking_var.get():
+                    self.depth_spinbox.configure(state="normal")
+        except Exception as e:
+            print(f"Error in toggle_depth_spinner: {str(e)}")
+
+    def select_reference_files(self):
+        """Open dialog to select files for reference tracking"""
+        root_dir = self.root_dir_var.get()
+        if not root_dir or not os.path.isdir(root_dir):
+            messagebox.showerror("Error", "Please select a valid root directory first")
+            return
+    
+        # Open file selector dialog
+        file_selector = FileSelector(self.root, root_dir, file_extension=".cs")
+        self.root.wait_window(file_selector)
+    
+        # Get selected files
+        self.selected_files = file_selector.get_selected_files()
+    
+        # Update display
+        if not self.selected_files:
+            self.selected_files_var.set("No files selected")
+        elif len(self.selected_files) == 1:
+            self.selected_files_var.set("1 file selected")
+        else:
+            self.selected_files_var.set(f"{len(self.selected_files)} files selected")
+
         
     def show_about(self):
         """Show about dialog"""
