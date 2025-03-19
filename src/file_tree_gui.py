@@ -330,24 +330,33 @@ class FileTreeGeneratorApp:
     def initialize_visualization(self):
         """Initialize all visualization components properly"""
         try:
-            # First, initialize the VisualizationManager
-            from visualization_manager import VisualizationManager
-            self.visualization_manager = VisualizationManager(self)
-            self.log("Visualization manager initialized successfully")
+            # First try direct import approach
+            try:
+                # Initialize the VisualizationManager
+                from visualization_manager import VisualizationManager
+                self.visualization_manager = VisualizationManager(self)
+                self.log("Visualization manager initialized successfully")
         
-            # Create direct method references for backward compatibility
-            self.open_code_visualizer = self.visualization_manager.visualize_file
-            self.open_method_visualizer = self.visualization_manager.visualize_method
-            self.show_reference_graph = self.visualization_manager.show_reference_graph
-            self.visualize_all_references = self.visualization_manager.visualize_all_references
+                # Create direct method references for backward compatibility
+                self.open_code_visualizer = self.visualization_manager.visualize_file
+                self.open_method_visualizer = self.visualization_manager.visualize_method
+                self.show_reference_graph = self.visualization_manager.show_reference_graph
+                self.visualize_all_references = self.visualization_manager.visualize_all_references
+            except ImportError:
+                self.log("VisualizationManager not available, falling back to alternative methods")
         
             # Then try to set up the code_visualizer integration
             try:
-                from code_visualizer import add_code_visualizer_to_app
-                add_code_visualizer_to_app(self.__class__)
-                self.log("Code visualizer integration successful")
+                # Import directly with error checking
+                import importlib.util
+                if importlib.util.find_spec("code_visualizer"):
+                    from code_visualizer import add_code_visualizer_to_app
+                    add_code_visualizer_to_app(self.__class__)
+                    self.log("Code visualizer integration successful")
+                else:
+                    self.log("Code visualizer module not available")
             except ImportError:
-                self.log("Code visualizer module not available, using VisualizationManager only")
+                self.log("Code visualizer module not available")
             except Exception as e:
                 self.log(f"Error setting up code visualizer: {str(e)}")
         

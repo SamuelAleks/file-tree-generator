@@ -1,9 +1,7 @@
-# Update to code_visualizer_integration.py to fix integration issues
-
 import os
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
-import importlib
+import importlib.util
 
 class CodeVisualizerIntegration:
     """
@@ -42,7 +40,7 @@ class CodeVisualizerIntegration:
                 # Add reference to the app
                 if hasattr(self.app, 'visualization_manager'):
                     self.app.visualization_manager = self.visualization_manager
-                self.log("Visualization manager initialized")
+                self.log("Visualization manager initialized successfully")
             else:
                 self.log("visualization_manager module not available")
         except Exception as e:
@@ -96,7 +94,7 @@ class CodeVisualizerIntegration:
             if self.reference_tracker:
                 return True
                 
-        # Otherwise create a new one
+        # Otherwise, create a new one
         try:
             if not directory:
                 if hasattr(self.app, 'root_dir_var'):
@@ -109,20 +107,24 @@ class CodeVisualizerIntegration:
                 return False
                 
             # Create reference tracker
-            from reference_tracking import ReferenceTrackingManager
-            self.log(f"Initializing reference tracker for {directory}...")
-            self.reference_tracker = ReferenceTrackingManager(directory, self.log)
-            self.reference_tracker.parse_directory()
-            
-            # Share with the app
-            if hasattr(self.app, 'reference_tracker'):
-                self.app.reference_tracker = self.reference_tracker
+            try:
+                from reference_tracking import ReferenceTrackingManager
+                self.log(f"Initializing reference tracker for {directory}...")
+                self.reference_tracker = ReferenceTrackingManager(directory, self.log)
+                self.reference_tracker.parse_directory()
                 
-            # Share with visualization manager
-            if self.visualization_manager:
-                self.visualization_manager.reference_tracker = self.reference_tracker
-                
-            return True
+                # Share with the app
+                if hasattr(self.app, 'reference_tracker'):
+                    self.app.reference_tracker = self.reference_tracker
+                    
+                # Share with visualization manager
+                if self.visualization_manager:
+                    self.visualization_manager.reference_tracker = self.reference_tracker
+                    
+                return True
+            except ImportError:
+                self.log("ReferenceTrackingManager not available")
+                return False
         except Exception as e:
             self.log(f"Error creating reference tracker: {str(e)}")
             return False
@@ -141,18 +143,19 @@ class CodeVisualizerIntegration:
             # Try to find the module without importing it first
             import importlib.util
             if importlib.util.find_spec("vizualization_toolbar"):
-                from vizualization_toolbar import VisualizationToolbar
-                # Create the toolbar
-                self.toolbar = VisualizationToolbar(self.app.root, self.app)
-                self.log("Added visualization toolbar")
-                return
+                try:
+                    from vizualization_toolbar import VisualizationToolbar
+                    # Create the toolbar
+                    self.toolbar = VisualizationToolbar(self.app.root, self.app)
+                    self.log("Added visualization toolbar")
+                    return
+                except Exception as e:
+                    self.log(f"Error creating visualization toolbar: {str(e)}")
             else:
-                self.log("Visualization toolbar module not available")
+                self.log("Visualization toolbar module not available, will try to add buttons to existing toolbar")
         except ImportError:
             # No toolbar module, so we'll try to add tools to existing toolbar
-            self.log("Visualization toolbar import failed, adding to existing toolbar")
-        except Exception as e:
-            self.log(f"Error creating visualization toolbar: {str(e)}")
+            self.log("Visualization toolbar import failed, will try to add to existing toolbar")
     
         # Look for existing toolbar or similar component
         if hasattr(self.app, 'toolbar_frame'):
@@ -226,19 +229,41 @@ class CodeVisualizerIntegration:
             self.log(f"Opening code visualizer for {file_path}")
             
             # Import the necessary class
-            from code_visualizer import CodeRelationshipVisualizer
-            
-            # Create the visualizer
-            visualizer = CodeRelationshipVisualizer(
-                self.app.root,
-                self.reference_tracker,
-                file_path
-            )
-            
-            return True
-        except ImportError:
-            messagebox.showinfo("Information", "CodeRelationshipVisualizer is not available")
-            return False
+            try:
+                from code_visualizer import CodeRelationshipVisualizer
+                
+                # Create the visualizer
+                visualizer = CodeRelationshipVisualizer(
+                    self.app.root,
+                    self.reference_tracker,
+                    file_path
+                )
+                
+                return True
+            except ImportError:
+                self.log("CodeRelationshipVisualizer not available, trying alternate method...")
+                try:
+                    # Try importing directly from the file
+                    import importlib.util
+                    spec = importlib.util.spec_from_file_location(
+                        "code_visualizer", 
+                        os.path.join(os.path.dirname(__file__), "code_visualizer.py")
+                    )
+                    if spec:
+                        module = importlib.util.module_from_spec(spec)
+                        spec.loader.exec_module(module)
+                        
+                        visualizer = module.CodeRelationshipVisualizer(
+                            self.app.root,
+                            self.reference_tracker,
+                            file_path
+                        )
+                        return True
+                except Exception as e:
+                    self.log(f"Alternative import failed: {str(e)}")
+                
+                messagebox.showinfo("Information", "CodeRelationshipVisualizer is not available")
+                return False
         except Exception as e:
             self.log(f"Error opening code visualizer: {str(e)}")
             messagebox.showerror("Error", f"Could not open visualizer: {str(e)}")
@@ -316,9 +341,23 @@ class CodeVisualizerIntegration:
                 
                 return True
             except ImportError:
-                # Fall back to general code visualizer
-                self.log("MethodRelationshipVisualizer not available, using general visualizer")
-                return self.open_code_visualizer(file_path)
+                # Try to import from code_visualizer
+                try:
+                    from code_visualizer import MethodRelationshipVisualizer
+                    
+                    # Create the visualizer
+                    visualizer = MethodRelationshipVisualizer(
+                        self.app.root,
+                        self.reference_tracker,
+                        file_path,
+                        method_name
+                    )
+                    
+                    return True
+                except (ImportError, AttributeError):
+                    # Fall back to general code visualizer
+                    self.log("MethodRelationshipVisualizer not available, using general visualizer")
+                    return self.open_code_visualizer(file_path)
                 
         except Exception as e:
             self.log(f"Error opening method visualizer: {str(e)}")

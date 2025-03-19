@@ -35,7 +35,7 @@ class VisualizationManager:
         """Dynamically load visualizer classes based on what's available"""
         # Dictionary to hold visualizer classes
         self.visualizers = {}
-        
+    
         # Try to import from code_visualizer module
         try:
             # First check if the module exists
@@ -45,20 +45,30 @@ class VisualizationManager:
                     CodeSnippetVisualizer,
                     CSharpCodeViewer
                 )
-                
+            
                 self.visualizers.update({
                     "relationship": CodeRelationshipVisualizer,
                     "snippet": CodeSnippetVisualizer,
                     "csharp": CSharpCodeViewer,
                 })
-                
-                # Try to import method visualizer if available
+            
+                # Try to import method visualizer from its own module first
                 try:
-                    from code_visualizer import MethodRelationshipVisualizer
-                    self.visualizers["method"] = MethodRelationshipVisualizer
+                    if importlib.util.find_spec("method_relationship_visualizer"):
+                        from method_relationship_visualizer import MethodRelationshipVisualizer
+                        self.visualizers["method"] = MethodRelationshipVisualizer
+                        self.log("Loaded MethodRelationshipVisualizer from method_relationship_visualizer module")
+                    else:
+                        # Fall back to importing from code_visualizer
+                        try:
+                            from code_visualizer import MethodRelationshipVisualizer
+                            self.visualizers["method"] = MethodRelationshipVisualizer
+                            self.log("Loaded MethodRelationshipVisualizer from code_visualizer module")
+                        except (ImportError, AttributeError):
+                            self.log("MethodRelationshipVisualizer not found in any module")
                 except (ImportError, AttributeError):
-                    self.log("MethodRelationshipVisualizer not found, will be added later")
-                
+                    self.log("Could not load MethodRelationshipVisualizer module")
+            
                 self.log("Loaded visualizer components successfully")
             else:
                 self.log("Warning: code_visualizer module not available")
@@ -70,49 +80,56 @@ class VisualizationManager:
         # Skip if app doesn't have a menu
         if not hasattr(self.app, 'menubar'):
             return
-            
+        
         # Find or create Visualize menu
         visualize_menu = None
-        
+    
         # First check if it already exists
-        for i in range(self.app.menubar.index('end') + 1):
-            label = self.app.menubar.entrycget(i, 'label')
-            if label == 'Visualize':
-                menu_name = self.app.menubar.entrycget(i, 'menu')
-                visualize_menu = self.app.nametowidget(menu_name)
-                break
-        
+        try:
+            for i in range(self.app.menubar.index('end') + 1):
+                if self.app.menubar.entrycget(i, 'label') == 'Visualize':
+                    menu_name = self.app.menubar.entrycget(i, 'menu')
+                    visualize_menu = self.app.nametowidget(menu_name)
+                    break
+        except (tk.TclError, AttributeError):
+            # Handle case where menubar is empty or doesn't support these operations
+            pass
+    
         # Create it if not found
         if not visualize_menu:
             visualize_menu = tk.Menu(self.app.menubar, tearoff=0)
             self.app.menubar.add_cascade(label="Visualize", menu=visualize_menu)
-        
+    
         # Clear existing items if any
-        visualize_menu.delete(0, 'end')
-        
+        try:
+            visualize_menu.delete(0, 'end')
+        except (tk.TclError, AttributeError):
+            # Handle case where menu can't be cleared
+            pass
+    
         # Add visualization options
         visualize_menu.add_command(
             label="Visualize Selected File",
             command=lambda: self.visualize_file()
         )
-        
+    
         visualize_menu.add_command(
             label="Method Relationships...",
             command=lambda: self.visualize_method()
         )
-        
+    
         visualize_menu.add_separator()
-        
+    
         visualize_menu.add_command(
             label="Reference Graph...",
             command=lambda: self.show_reference_graph()
         )
-        
+    
         visualize_menu.add_command(
             label="All References...",
             command=lambda: self.visualize_all_references()
         )
-        
+    
         # Add a help entry
         visualize_menu.add_separator()
         visualize_menu.add_command(

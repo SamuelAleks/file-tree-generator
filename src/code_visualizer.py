@@ -6,6 +6,10 @@ from typing import Dict, List, Set, Tuple, Optional, Callable, Any
 import threading
 import time
 
+
+# Import everything needed in one place
+from method_relationship_visualizer import MethodRelationshipVisualizer
+
 # For syntax highlighting
 try:
     from pygments import highlight
@@ -530,6 +534,7 @@ class SynchronizedTextEditor(ttk.Frame):
     def bind_event(self, event, callback):
         """Bind an event to the text widget"""
         self.text.bind(event, callback)
+    pass
 
 
 class CodeElement:
@@ -586,6 +591,7 @@ class CodeElement:
     
     def __repr__(self):
         return f"{self.element_type}: {self.name} (lines {self.line_start}-{self.line_end})"
+    pass
 
 
 class CodeReference:
@@ -602,6 +608,7 @@ class CodeReference:
     
     def __repr__(self):
         return f"{self.reference_type} at line {self.line_number}: {self.context}"
+    pass
 
 
 class CodeRelationshipVisualizer(tk.Toplevel):
@@ -1868,6 +1875,7 @@ class CodeRelationshipVisualizer(tk.Toplevel):
             line, col = self.search_matches[self.current_match]
             self.code_editor.goto_position(line, col)
             self.status_var.set(f"Match {self.current_match + 1} of {len(self.search_matches)}")
+    pass
 
 
 class CodeSnippetVisualizer(tk.Toplevel):
@@ -2026,6 +2034,7 @@ class CodeSnippetVisualizer(tk.Toplevel):
             source_x + 4, source_y + 4,
             fill=self.connection_color, outline=self.connection_color
         )
+    pass
 
 
 class CSharpCodeViewer(tk.Toplevel):
@@ -2407,6 +2416,7 @@ class CSharpCodeViewer(tk.Toplevel):
             line, col = self.search_matches[self.current_match]
             self.code_editor.goto_position(line, col)
             self.status_var.set(f"Match {self.current_match + 1} of {len(self.search_matches)}")
+    pass
 
 
 # Integration with the main application
@@ -2580,3 +2590,4 @@ def add_code_visualizer_to_app(app_class):
     
     # Replace the init method
     app_class.__init__ = patched_init
+    pass

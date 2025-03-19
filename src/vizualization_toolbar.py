@@ -34,48 +34,55 @@ class VisualizationToolbar:
     def create_visualization_tools(self):
         """Create the visualization toolbar contents"""
         # Create visualization section
-        vis_frame = ttk.LabelFrame(self.frame, text="Visualization")
-        vis_frame.pack(side=tk.LEFT, fill=tk.Y, padx=5)
-        
-        # File relationship visualizer button
-        self.file_button = ttk.Button(
-            vis_frame, 
-            text="File Relationships", 
-            command=self.open_file_visualizer,
-            width=18
-        )
-        self.file_button.pack(side=tk.TOP, pady=2, padx=5)
-        
-        # Method visualizer button
-        self.method_button = ttk.Button(
-            vis_frame, 
-            text="Method Relationships", 
-            command=self.open_method_visualizer,
-            width=18
-        )
-        self.method_button.pack(side=tk.TOP, pady=2, padx=5)
-        
-        # Reference graph button
-        self.graph_button = ttk.Button(
-            vis_frame, 
-            text="Reference Graph", 
-            command=self.show_reference_graph,
-            width=18
-        )
-        self.graph_button.pack(side=tk.TOP, pady=2, padx=5)
-        
-        # Configure button styles
         try:
-            style = ttk.Style()
-            style.configure('Toolbutton', font=('Arial', 9))
-        except Exception:
-            # Ignore style errors
-            pass
-        
-        # Add tooltips
-        self.create_tooltip(self.file_button, "View relationships between files and their contents")
-        self.create_tooltip(self.method_button, "View method connections with interactive visualization")
-        self.create_tooltip(self.graph_button, "Show a graph of references between files")
+            vis_frame = ttk.LabelFrame(self.frame, text="Visualization")
+            vis_frame.pack(side=tk.LEFT, fill=tk.Y, padx=5)
+            
+            # File relationship visualizer button
+            self.file_button = ttk.Button(
+                vis_frame, 
+                text="File Relationships", 
+                command=self.open_file_visualizer,
+                width=18
+            )
+            self.file_button.pack(side=tk.TOP, pady=2, padx=5)
+            
+            # Method visualizer button
+            self.method_button = ttk.Button(
+                vis_frame, 
+                text="Method Relationships", 
+                command=self.open_method_visualizer,
+                width=18
+            )
+            self.method_button.pack(side=tk.TOP, pady=2, padx=5)
+            
+            # Reference graph button
+            self.graph_button = ttk.Button(
+                vis_frame, 
+                text="Reference Graph", 
+                command=self.show_reference_graph,
+                width=18
+            )
+            self.graph_button.pack(side=tk.TOP, pady=2, padx=5)
+            
+            # Configure button styles
+            try:
+                style = ttk.Style()
+                style.configure('Toolbutton', font=('Arial', 9))
+            except Exception:
+                # Ignore style errors
+                pass
+            
+            # Add tooltips
+            self.create_tooltip(self.file_button, "View relationships between files and their contents")
+            self.create_tooltip(self.method_button, "View method connections with interactive visualization")
+            self.create_tooltip(self.graph_button, "Show a graph of references between files")
+        except Exception as e:
+            # Log error but don't crash
+            if hasattr(self.app, 'log'):
+                self.app.log(f"Error creating visualization toolbar: {str(e)}")
+            else:
+                print(f"Error creating visualization toolbar: {str(e)}")
     
     def create_tooltip(self, widget, text):
         """Create a tooltip for a widget"""
