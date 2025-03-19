@@ -51,6 +51,186 @@ class CSharpReferenceTracker:
         self.xaml_to_cs_mapping = {}  # xaml_file_path -> cs_file_path
         self.cs_to_xaml_mapping = {}  # cs_file_path -> xaml_file_path
     
+    def get_method_details(self, file_path, method_name=None):
+        """
+        Get method details for a specific file or method.
+    
+        Args:
+            file_path: Path to the source file
+            method_name: Optional specific method name
+        
+        Returns:
+            Dictionary of method information
+        """
+        if file_path not in self.file_info:
+            return {}
+        
+        file_data = self.file_info[file_path]
+        methods_info = {}
+    
+        # Extract content for method analysis
+        content = file_data.get('raw_content', '')
+        if not content:
+            return {}
+    
+        # Find all methods or a specific method
+        if method_name:
+            # Find a specific method
+            methods = [m for m in file_data.get('methods', []) if m == method_name]
+            if not methods:
+                return {}
+        else:
+            # Get all methods in the file
+            methods = file_data.get('methods', [])
+    
+        # Extract details for each method
+        for method in methods:
+            # Find method in content
+            pattern = r'(?:public|private|protected|internal)\s+(?:(?:virtual|override|abstract|static|async)\s+)*(?:[\w<>[\],\s]+\s+)' + \
+                      re.escape(method) + r'\s*\(([^)]*)\)(?:\s*(?:where\s+.*?)?(?:{|=>))'
+            match = re.search(pattern, content)
+        
+            if match:
+                # Find method body
+                start_pos = match.start()
+            
+                # Find method body if using braces
+                if '{' in match.group():
+                    # Find matching closing brace
+                    brace_count = 1
+                    end_pos = match.end()
+                
+                    while brace_count > 0 and end_pos < len(content):
+                        if content[end_pos] == '{':
+                            brace_count += 1
+                        elif content[end_pos] == '}':
+                            brace_count -= 1
+                        end_pos += 1
+                
+                    method_content = content[start_pos:end_pos]
+                else:
+                    # Expression-bodied method
+                    semicolon_pos = content.find(';', match.end())
+                    method_content = content[start_pos:semicolon_pos+1]
+            
+                # Extract line numbers
+                start_line = content[:start_pos].count('\n') + 1
+                end_line = start_line + method_content.count('\n')
+            
+                # Find method calls within this method
+                calls = []
+                call_pattern = r'(\w+)\.(\w+)\s*\('
+                for call_match in re.finditer(call_pattern, method_content):
+                    obj_name = call_match.group(1)
+                    called_method = call_match.group(2)
+                    calls.append((obj_name, called_method))
+            
+                # Create method info
+                methods_info[method] = {
+                    'name': method,
+                    'parameters': match.group(1) if match.groups() else '',
+                    'content': method_content,
+                    'start_line': start_line,
+                    'end_line': end_line,
+                    'calls': calls,
+                    'signature': match.group(0)
+                }
+    
+        return methods_info
+
+    def get_method_references(self, file_path, method_name):
+        """
+        Find all references to a specific method.
+    
+        Args:
+            file_path: Path to the file containing the method
+            method_name: Name of the method to find references for
+        
+        Returns:
+            (incoming_refs, outgoing_refs) - Lists of reference information
+        """
+        incoming_refs = []  # Methods that call this method
+        outgoing_refs = []  # Methods that this method calls
+    
+        # Ensure the file exists in our info
+        if file_path not in self.file_info:
+            return [], []
+    
+        # Get containing class/namespace info
+        class_name = None
+        namespace = self.file_info[file_path].get('namespace', '')
+    
+        # Find containing class (assuming method is in a class)
+        for type_name in self.file_info[file_path].get('types', []):
+            # Simple heuristic - in a more thorough solution, we would check method scope
+            class_name = type_name
+            break
+    
+        # Create qualified name patterns to search for
+        qualified_patterns = []
+        if class_name:
+            qualified_patterns.append(f"{class_name}.{method_name}")
+            if namespace:
+                qualified_patterns.append(f"{namespace}.{class_name}.{method_name}")
+    
+        # Look for references in all files
+        for source_file, info in self.file_info.items():
+            # Skip the current file for incoming references
+            if source_file == file_path:
+                # Get outgoing references from this method
+                method_info = self.get_method_details(file_path, method_name)
+                if method_name in method_info:
+                    for obj_name, called_method in method_info[method_name].get('calls', []):
+                        # Try to resolve the target class/file
+                        target_file = self._find_likely_file_for_class(obj_name)
+                        outgoing_refs.append({
+                            'method': called_method,
+                            'class': obj_name,
+                            'file': target_file or "Unknown",
+                            'line': 0  # Would need more analysis to find exact line
+                        })
+                continue
+            
+            # Look for direct method calls to our target
+            for ref_type, *ref_args in info.get('references', []):
+                if ref_type == 'method_call':
+                    obj_name, called_method = ref_args
+                    if called_method == method_name:
+                        # Check if this is likely calling our target method
+                        if obj_name == class_name or any(pat in info.get('raw_content', '') for pat in qualified_patterns):
+                            # Find calling methods
+                            calling_methods = []
+                            for method_name_in_file, method_details in self.get_method_details(source_file).items():
+                                if any(call[1] == method_name for call in method_details.get('calls', [])):
+                                    calling_methods.append(method_name_in_file)
+                        
+                            # If we found specific calling methods, add them
+                            if calling_methods:
+                                for calling_method in calling_methods:
+                                    incoming_refs.append({
+                                        'method': calling_method,
+                                        'class': info.get('types', ['Unknown'])[0],
+                                        'file': source_file,
+                                        'line': 0  # Simplified - would need more analysis
+                                    })
+                            else:
+                                # If no specific methods found, add a generic reference
+                                incoming_refs.append({
+                                    'method': 'Unknown',
+                                    'class': info.get('types', ['Unknown'])[0],
+                                    'file': source_file,
+                                    'line': 0
+                                })
+    
+        return incoming_refs, outgoing_refs
+
+    def _find_likely_file_for_class(self, class_name):
+        """Find the most likely file that contains a given class"""
+        for file_path, info in self.file_info.items():
+            if class_name in info.get('types', []):
+                return file_path
+        return None
+
     def parse_directory(self, directory, include_xaml=True):
         """
         Parse all C# files in a directory and its subdirectories

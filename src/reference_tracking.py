@@ -50,6 +50,47 @@ class ReferenceTrackingManager:
         self.log(f"Parsed {self.files_parsed} files")
         return self.files_parsed
     
+    def get_method_details(self, file_path, method_name=None):
+        """
+        Get detailed information about methods in a file.
+    
+        Args:
+            file_path: Path to the file
+            method_name: Optional specific method name
+        
+        Returns:
+            Dictionary of method information
+        """
+        return self.tracker.get_method_details(file_path, method_name)
+
+    def get_method_references(self, file_path, method_name):
+        """
+        Get methods that reference a specific method and methods referenced by it.
+    
+        Args:
+            file_path: Path to the file containing the method
+            method_name: Name of the method
+        
+        Returns:
+            (incoming_refs, outgoing_refs) tuple of lists
+        """
+        return self.tracker.get_method_references(file_path, method_name)
+
+    def get_methods_in_file(self, file_path):
+        """
+        Get a list of all methods in a file.
+    
+        Args:
+            file_path: Path to the file
+        
+        Returns:
+            List of method names
+        """
+        if not self.files_parsed:
+            self.parse_directory()
+    
+        return self.tracker.file_info.get(file_path, {}).get('methods', [])
+
     def find_related_files(self, start_files, depth=float('inf'), ignore_xaml=False):
         """
         Find all files related to the starting files.

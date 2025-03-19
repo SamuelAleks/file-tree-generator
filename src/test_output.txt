@@ -1,5 +1,5 @@
 File Structure - C:\Users\SamuelA\source\repos\file-tree-generator\src\test_project
-Scan Date: 2025-03-19 14:47:58
+Scan Date: 2025-03-19 15:19:47
 Extensions: .py, .md
 ================================================================================
 
@@ -14,13 +14,13 @@ DIRECTORY STRUCTURE SUMMARY
 DETAILED FILE TREE WITH CONTENTS
 --------------------------------------------------------------------------------
 📁 test_project (root)
-├── 📄 README.md (43.00 B, 2025-03-19 14:47:58)
+├── 📄 README.md (43.00 B, 2025-03-19 15:19:47)
 │   ---[FILE: README.md]---
 │   1:# Test Project
 │   2:
 │   3:This is a test project.
 │   ---[END]---
-└── 📄 test.py (44.00 B, 2025-03-19 14:47:58)
+└── 📄 test.py (44.00 B, 2025-03-19 15:19:47)
     ---[FILE: test.py]---
     1:# Test Python file
     2:print('Hello, world!')

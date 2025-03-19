@@ -114,6 +114,111 @@ class FileSelector(tk.Toplevel):
                 self.context_menu.tk_popup(event.x_root, event.y_root)
             finally:
                 self.context_menu.grab_release()
+
+    def add_method_selection(self):
+        """Add method selection to the dialog"""
+        method_frame = ttk.Frame(self)
+        method_frame.pack(fill=tk.X, padx=10, pady=5, before=self.button_frame)
+    
+        ttk.Label(method_frame, text="Select Method:").pack(side=tk.LEFT, padx=(0, 5))
+    
+        self.method_var = tk.StringVar()
+        self.method_combo = ttk.Combobox(method_frame, textvariable=self.method_var, width=40)
+        self.method_combo.pack(side=tk.LEFT, padx=(0, 5), fill=tk.X, expand=True)
+    
+        # Add visualization button
+        self.method_viz_button = ttk.Button(method_frame, text="Visualize Method", 
+                                          command=self.visualize_method, state=tk.DISABLED)
+        self.method_viz_button.pack(side=tk.RIGHT, padx=5)
+    
+        # Bind selection event
+        self.tree.bind("<<TreeviewSelect>>", self.update_methods_for_file)
+
+    def update_methods_for_file(self, event=None):
+        """Update methods list when a file is selected"""
+        selected = self.tree.selection()
+        if not selected:
+            self.method_combo.set('')
+            self.method_combo['values'] = []
+            self.method_viz_button.config(state=tk.DISABLED)
+            return
+        
+        # Get the file path
+        item_values = self.tree.item(selected[0], "values")
+        if len(item_values) >= 1 and item_values[1] == "file":
+            file_path = item_values[0]
+        
+            # Only update for .cs files
+            if not file_path.lower().endswith('.cs'):
+                self.method_combo.set('')
+                self.method_combo['values'] = []
+                self.method_viz_button.config(state=tk.DISABLED)
+                return
+            
+            # Get methods for this file
+            methods = self.get_methods_for_file(file_path)
+        
+            if methods:
+                self.method_combo['values'] = methods
+                self.method_combo.current(0)
+                self.method_viz_button.config(state=tk.NORMAL)
+            else:
+                self.method_combo.set('')
+                self.method_combo['values'] = []
+                self.method_viz_button.config(state=tk.DISABLED)
+
+    def get_methods_for_file(self, file_path):
+        """Get methods in a file using the reference tracker"""
+        # Check if parent app has reference tracker
+        parent = self.master
+        while parent and not hasattr(parent, 'reference_tracker'):
+            parent = parent.master
+    
+        if parent and hasattr(parent, 'reference_tracker') and parent.reference_tracker:
+            # Use reference tracker to get methods
+            return parent.reference_tracker.get_methods_in_file(file_path)
+    
+        # Fallback: parse methods from file content directly
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            import re
+            # Basic method detection regex
+            method_pattern = r'(?:public|private|protected|internal)\s+(?:(?:virtual|override|abstract|static|async)\s+)*(?:[\w<>[\],\s]+\s+)(\w+)\s*\('
+            methods = re.findall(method_pattern, content)
+            return methods
+        except Exception:
+            return []
+
+    def visualize_method(self):
+        """Visualize the selected method"""
+        selected = self.tree.selection()
+        if not selected:
+            return
+        
+        # Get the file path
+        item_values = self.tree.item(selected[0], "values")
+        if len(item_values) >= 1 and item_values[1] == "file":
+            file_path = item_values[0]
+            method_name = self.method_var.get()
+        
+            if not method_name:
+                return
+        
+            # Check if parent app has visualizer method
+            parent = self.master
+            while parent and not hasattr(parent, 'open_method_visualizer'):
+                parent = parent.master
+        
+            if parent and hasattr(parent, 'open_method_visualizer'):
+                parent.open_method_visualizer(file_path, method_name)
+            else:
+                # Try to find visualizer in the code_visualizer_integration
+                if hasattr(parent, 'visualizer') and hasattr(parent.visualizer, 'open_method_visualizer'):
+                    parent.visualizer.open_method_visualizer(file_path, method_name)
+                else:
+                    messagebox.showinfo("Information", "Method visualizer not available in this context.")
     
     def visualize_selected(self):
         """Visualize selected file"""
@@ -169,14 +274,14 @@ class FileSelector(tk.Toplevel):
         selected_paths = [self.tree.item(item_id, "values")[0] 
                         for item_id in self.tree.selection() 
                         if self.tree.item(item_id, "values")[1] == "file"]
-        
+    
         # Clear the tree
         for item in self.tree.get_children():
             self.tree.delete(item)
-            
+        
         # Repopulate the tree
         self.populate_tree()
-        
+    
         # Restore selection where possible
         for item_id in self.get_all_items():
             item_type = self.tree.item(item_id, "values")[1]
@@ -184,7 +289,7 @@ class FileSelector(tk.Toplevel):
                 file_path = self.tree.item(item_id, "values")[0]
                 if file_path in selected_paths:
                     self.tree.selection_add(item_id)
-                    
+                
         self.update_selection_count()
     
     def get_all_items(self):

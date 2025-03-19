@@ -41,7 +41,7 @@ class FileTreeGeneratorApp:
         # Create main frame
         main_frame = ttk.Frame(root, padding="10")
         main_frame.pack(fill=tk.BOTH, expand=True)
-    
+        
         # Create input frame for directory and output file
         input_frame = ttk.LabelFrame(main_frame, text="Input/Output", padding="10")
         input_frame.pack(fill=tk.X, pady=5)
@@ -325,16 +325,45 @@ class FileTreeGeneratorApp:
         check_updates_at_startup(self.root)
     
         # Initialize code visualizer integration at the end
+        #self.initialize_visualizer()
+        
+        # Initialize visualization manager
+        from visualization_manager import VisualizationManager
+        self.visualization_manager = VisualizationManager(self)
+    
+        # For backward compatibility
+        #self.open_code_visualizer = self.visualization_manager.visualize_file
+        #self.open_method_visualizer = self.visualization_manager.visualize_method
+
+        
         self.initialize_visualizer()
 
     def initialize_visualizer(self):
         """Initialize the code visualizer integration"""
-        self.visualizer = CodeVisualizerIntegration(self)
-    
-        # Add reference to open_code_visualizer method for compatibility
-        self.open_code_visualizer = self.visualizer.open_code_visualizer
-        self.show_reference_graph = self.visualizer.show_reference_graph
-        self.visualize_all_references = self.visualizer.analyze_all_references
+        try:
+            # Import the integration class
+            from code_visualizer import add_code_visualizer_to_app
+        
+            # Apply the integration to this class
+            add_code_visualizer_to_app(self.__class__)
+        
+            # Initialize visualizer instance
+            self.visualizer = CodeVisualizerIntegration(self)
+        
+            # Add direct references to methods for compatibility
+            if hasattr(self.visualizer, 'open_code_visualizer'):
+                self.open_code_visualizer = self.visualizer.open_code_visualizer
+            if hasattr(self.visualizer, 'show_reference_graph'):
+                self.show_reference_graph = self.visualizer.show_reference_graph
+            if hasattr(self.visualizer, 'analyze_all_references'):
+                self.visualize_all_references = self.visualizer.analyze_all_references
+            
+            self.log("Visualizer integration initialized successfully")
+        except Exception as e:
+            self.log(f"Error initializing visualizer: {str(e)}")
+            # Add the basic method in case integration fails
+            if not hasattr(self, 'open_code_visualizer'):
+                self.open_code_visualizer = lambda file_path=None: self.log("Visualizer not available")
 
     def visualize_references(self):
         """Open visualizer for selected reference files"""
@@ -1011,529 +1040,6 @@ class FileTreeGeneratorApp:
         about_window.geometry(f"{width}x{height}+{x}+{y}")
 
 
-# ENHANCED CODE VISUALIZER INTEGRATION
-class CodeVisualizerIntegration:
-    """
-    Enhanced implementation of code visualization functionality
-    with interactive file browsing and improved reference analysis.
-    """
-    
-    def __init__(self, app_instance):
-        """
-        Initialize with a reference to the main application
-        
-        Args:
-            app_instance: Instance of FileTreeGeneratorApp
-        """
-        self.app = app_instance
-        self.reference_tracker = None
-        self.selected_files = []
-        
-        # Add menu options
-        self.add_visualizer_menu_options()
-    
-    def add_visualizer_menu_options(self):
-        """Add code visualizer options to the menu"""
-        # Use the existing visualize menu that was created in the main app
-        if hasattr(self.app, 'visualize_menu'):
-            visualize_menu = self.app.visualize_menu
-            
-            # Clear any existing items
-            visualize_menu.delete(0, "end")
-            
-            # Add options to visualize menu
-            visualize_menu.add_command(label="Open Code Visualizer...", 
-                                      command=self.open_file_dialog)
-            visualize_menu.add_command(label="Visualize Selected File", 
-                                      command=self.visualize_selected)
-            visualize_menu.add_separator()
-            # New option - file browser
-            visualize_menu.add_command(label="Browse Code Files...", 
-                                      command=self.open_file_browser)
-            visualize_menu.add_command(label="Reference Graph...", 
-                                      command=self.show_reference_graph)
-            visualize_menu.add_command(label="Analyze All References",
-                                      command=self.analyze_all_references)
-        else:
-            # Log a warning if visualize_menu doesn't exist
-            if hasattr(self.app, 'log'):
-                self.app.log("Warning: Visualize menu not found. Some features may be unavailable.")
-    
-    def open_file_dialog(self):
-        """Open dialog to select a file for visualization"""
-        file_path = filedialog.askopenfilename(
-            title="Select File to Visualize",
-            filetypes=[("C# Files", "*.cs"), ("XAML Files", "*.xaml;*.axaml"), ("All Files", "*.*")]
-        )
-        if file_path:
-            self.open_code_visualizer(file_path)
-    
-    def visualize_selected(self):
-        """Visualize the currently selected file (if any)"""
-        if hasattr(self.app, 'selected_files') and self.app.selected_files:
-            self.open_code_visualizer(self.app.selected_files[0])
-        else:
-            messagebox.showinfo("Information", "No file selected. Please select a file first.")
-    
-    # New method - open file browser
-    def open_file_browser(self):
-        """Open a file browser dialog for code files"""
-        self.create_file_browser_dialog()
-    
-    # New method - create file browser dialog
-    def create_file_browser_dialog(self):
-        """Create a file browser dialog for code visualization"""
-        dialog = tk.Toplevel(self.app.root)
-        dialog.title("Code File Browser")
-        dialog.geometry("700x500")
-        dialog.transient(self.app.root)
-        dialog.grab_set()
-        
-        # Create main frame
-        main_frame = ttk.Frame(dialog, padding="10")
-        main_frame.pack(fill=tk.BOTH, expand=True)
-        
-        # Create directory selection frame
-        dir_frame = ttk.Frame(main_frame)
-        dir_frame.pack(fill=tk.X, pady=10)
-        
-        ttk.Label(dir_frame, text="Directory:").pack(side=tk.LEFT, padx=(0, 5))
-        dir_var = tk.StringVar(value=self.app.root_dir_var.get())
-        dir_entry = ttk.Entry(dir_frame, textvariable=dir_var, width=50)
-        dir_entry.pack(side=tk.LEFT, padx=(0, 5), fill=tk.X, expand=True)
-        
-        browse_button = ttk.Button(dir_frame, text="Browse...", 
-                                 command=lambda: self.browse_directory(dir_var, file_listbox, files))
-        browse_button.pack(side=tk.LEFT)
-        
-        # Create file listbox frame
-        files_frame = ttk.LabelFrame(main_frame, text="Code Files")
-        files_frame.pack(fill=tk.BOTH, expand=True, pady=10)
-        
-        # Create file listbox with scrollbar
-        list_frame = ttk.Frame(files_frame)
-        list_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        
-        scrollbar = ttk.Scrollbar(list_frame)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        file_listbox = tk.Listbox(list_frame, yscrollcommand=scrollbar.set)
-        file_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.config(command=file_listbox.yview)
-        
-        # Add double-click binding
-        file_listbox.bind("<Double-1>", lambda e: self.open_selected_file(file_listbox, files))
-        
-        # Create filter frame
-        filter_frame = ttk.Frame(main_frame)
-        filter_frame.pack(fill=tk.X, pady=5)
-        
-        ttk.Label(filter_frame, text="Filter:").pack(side=tk.LEFT, padx=(0, 5))
-        show_cs_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(filter_frame, text="C# Files", variable=show_cs_var,
-                      command=lambda: self.refresh_file_list(dir_var.get(), file_listbox, files, 
-                                                         show_cs_var, show_xaml_var)).pack(side=tk.LEFT)
-        
-        show_xaml_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(filter_frame, text="XAML Files", variable=show_xaml_var,
-                       command=lambda: self.refresh_file_list(dir_var.get(), file_listbox, files, 
-                                                          show_cs_var, show_xaml_var)).pack(side=tk.LEFT)
-        
-        # Create button frame
-        button_frame = ttk.Frame(main_frame)
-        button_frame.pack(fill=tk.X, pady=10)
-        
-        # Add buttons
-        visualize_button = ttk.Button(button_frame, text="Visualize File", 
-                                    command=lambda: self.visualize_selected_file(file_listbox, files))
-        visualize_button.pack(side=tk.LEFT, padx=5)
-        
-        c_sharp_button = ttk.Button(button_frame, text="C# Viewer", 
-                                  command=lambda: self.open_csharp_viewer_for_selected(file_listbox, files))
-        c_sharp_button.pack(side=tk.LEFT, padx=5)
-        
-        analyze_button = ttk.Button(button_frame, text="Analyze References", 
-                                  command=lambda: self.analyze_selected_references(file_listbox, files))
-        analyze_button.pack(side=tk.LEFT, padx=5)
-        
-        close_button = ttk.Button(button_frame, text="Close", command=dialog.destroy)
-        close_button.pack(side=tk.RIGHT, padx=5)
-        
-        # Initialize file list
-        files = []
-        
-        # Scan initial directory if set
-        if dir_var.get():
-            self.scan_directory(dir_var.get(), file_listbox, files)
-    
-    # New method - browse directory
-    def browse_directory(self, dir_var, file_listbox, files):
-        """Browse for a directory and update the file list"""
-        directory = filedialog.askdirectory(title="Select Directory with Code Files")
-        if directory:
-            dir_var.set(directory)
-            self.scan_directory(directory, file_listbox, files)
-    
-    # New method - scan directory
-    def scan_directory(self, directory, file_listbox, files):
-        """Scan directory for code files and update the listbox"""
-        if hasattr(self.app, 'log'):
-            self.app.log(f"Scanning directory for code files: {directory}")
-        
-        # Clear existing files
-        files.clear()
-        file_listbox.delete(0, tk.END)
-        
-        # Scan directory for files
-        for root, dirs, filenames in os.walk(directory):
-            for file in filenames:
-                if file.lower().endswith('.cs') or file.lower().endswith(('.xaml', '.axaml')):
-                    full_path = os.path.join(root, file)
-                    rel_path = os.path.relpath(full_path, directory)
-                    files.append((rel_path, full_path))
-        
-        # Sort files by path
-        files.sort(key=lambda x: x[0])
-        
-        # Add to listbox
-        for rel_path, _ in files:
-            file_listbox.insert(tk.END, rel_path)
-        
-        if hasattr(self.app, 'log'):
-            self.app.log(f"Found {len(files)} code files")
-    
-    # New method - refresh file list
-    def refresh_file_list(self, directory, file_listbox, files, show_cs_var, show_xaml_var):
-        """Refresh the file list based on filter settings"""
-        file_listbox.delete(0, tk.END)
-        
-        for rel_path, full_path in files:
-            if show_cs_var.get() and full_path.lower().endswith('.cs'):
-                file_listbox.insert(tk.END, rel_path)
-            elif show_xaml_var.get() and (full_path.lower().endswith('.xaml') or 
-                                       full_path.lower().endswith('.axaml')):
-                file_listbox.insert(tk.END, rel_path)
-    
-    # New method - open selected file
-    def open_selected_file(self, file_listbox, files):
-        """Open the selected file in the appropriate viewer"""
-        selection = file_listbox.curselection()
-        if not selection:
-            messagebox.showinfo("Information", "Please select a file to open")
-            return
-        
-        index = selection[0]
-        if index < len(files):
-            _, full_path = files[index]
-            self.open_code_visualizer(full_path)
-    
-    # New method - visualize selected file
-    def visualize_selected_file(self, file_listbox, files):
-        """Visualize the selected file using CodeRelationshipVisualizer"""
-        selection = file_listbox.curselection()
-        if not selection:
-            messagebox.showinfo("Information", "Please select a file to visualize")
-            return
-        
-        index = selection[0]
-        if index < len(files):
-            _, full_path = files[index]
-            
-            # Import visualizer class
-            from code_visualizer import CodeRelationshipVisualizer
-            
-            # Ensure reference tracker is initialized
-            self.ensure_reference_tracker(os.path.dirname(full_path))
-            
-            # Open visualizer
-            CodeRelationshipVisualizer(self.app.root, self.reference_tracker, full_path)
-    
-    # New method - open C# viewer for selected file
-    def open_csharp_viewer_for_selected(self, file_listbox, files):
-        """Open the C# viewer for the selected file"""
-        selection = file_listbox.curselection()
-        if not selection:
-            messagebox.showinfo("Information", "Please select a file to open")
-            return
-        
-        index = selection[0]
-        if index < len(files):
-            _, full_path = files[index]
-            
-            # Check if this is a C# or XAML file
-            if not full_path.lower().endswith('.cs') and not full_path.lower().endswith(('.xaml', '.axaml')):
-                messagebox.showinfo("Information", "Please select a C# or XAML file")
-                return
-            
-            # Import C# viewer class
-            from code_visualizer import CSharpCodeViewer
-            
-            # Ensure reference tracker is initialized
-            self.ensure_reference_tracker(os.path.dirname(full_path))
-            
-            # Open C# viewer
-            CSharpCodeViewer(self.app.root, self.reference_tracker, full_path)
-    
-    # New method - analyze selected references
-    def analyze_selected_references(self, file_listbox, files):
-        """Analyze references for selected files"""
-        selections = file_listbox.curselection()
-        if not selections:
-            messagebox.showinfo("Information", "Please select one or more files")
-            return
-        
-        selected_files = []
-        for index in selections:
-            if index < len(files):
-                _, full_path = files[index]
-                selected_files.append(full_path)
-        
-        if not selected_files:
-            return
-        
-        # Ensure reference tracker is initialized
-        directory = os.path.dirname(selected_files[0])
-        self.ensure_reference_tracker(directory)
-        
-        # Find related files
-        from tkinter import simpledialog
-        depth = simpledialog.askinteger("Reference Depth", 
-                                     "Enter maximum reference depth (1-5):",
-                                     minvalue=1, maxvalue=5, initialvalue=2)
-        if not depth:
-            return
-        
-        # Log analysis
-        if hasattr(self.app, 'log'):
-            self.app.log(f"Analyzing references for {len(selected_files)} selected files (depth: {depth})...")
-        
-        # Find related files
-        related_files = self.reference_tracker.find_related_files(selected_files, depth)
-        
-        # Show summary dialog
-        self.show_reference_summary_dialog(related_files, selected_files)
-    
-    # New method - reference summary dialog
-    def show_reference_summary_dialog(self, related_files, source_files):
-        """Show a dialog with reference summary information"""
-        dialog = tk.Toplevel(self.app.root)
-        dialog.title("Reference Analysis Summary")
-        dialog.geometry("700x500")
-        dialog.transient(self.app.root)
-        dialog.grab_set()
-        
-        # Create main frame
-        main_frame = ttk.Frame(dialog, padding="10")
-        main_frame.pack(fill=tk.BOTH, expand=True)
-        
-        # Create summary text
-        summary_text = f"Reference Analysis for {len(source_files)} source files\n\n"
-        summary_text += f"Found {len(related_files)} related files across {len(related_files) - len(source_files)} reference levels\n\n"
-        
-        # Add file type counts
-        cs_count = sum(1 for f in related_files if f.lower().endswith('.cs'))
-        xaml_count = sum(1 for f in related_files if f.lower().endswith(('.xaml', '.axaml')))
-        other_count = len(related_files) - cs_count - xaml_count
-        
-        summary_text += f"File Types:\n"
-        summary_text += f"- C# Files: {cs_count}\n"
-        summary_text += f"- XAML/AXAML Files: {xaml_count}\n"
-        summary_text += f"- Other Files: {other_count}\n\n"
-        
-        # Add reference summary if available
-        if hasattr(self.reference_tracker, 'generate_reference_summary'):
-            summary = self.reference_tracker.generate_reference_summary(related_files)
-            if hasattr(self.app, 'log'):
-                self.app.log(summary)
-            
-            # Add key information from the summary
-            summary_text += "Detailed Reference Information:\n"
-            summary_text += summary
-        
-        # Create text widget for summary
-        summary_frame = ttk.LabelFrame(main_frame, text="Reference Summary")
-        summary_frame.pack(fill=tk.BOTH, expand=True, pady=10)
-        
-        # Add scrollbar
-        scrollbar = ttk.Scrollbar(summary_frame)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        summary_text_widget = tk.Text(summary_frame, wrap=tk.WORD, yscrollcommand=scrollbar.set)
-        summary_text_widget.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        summary_text_widget.insert(tk.END, summary_text)
-        summary_text_widget.config(state=tk.DISABLED)
-        scrollbar.config(command=summary_text_widget.yview)
-        
-        # Create buttons
-        button_frame = ttk.Frame(main_frame)
-        button_frame.pack(fill=tk.X, pady=10)
-        
-        visualize_button = ttk.Button(button_frame, text="Visualize First File", 
-                                   command=lambda: self.open_code_visualizer(source_files[0]))
-        visualize_button.pack(side=tk.LEFT, padx=5)
-        
-        export_button = ttk.Button(button_frame, text="Export References", 
-                                command=lambda: self.export_reference_list(related_files))
-        export_button.pack(side=tk.LEFT, padx=5)
-        
-        close_button = ttk.Button(button_frame, text="Close", command=dialog.destroy)
-        close_button.pack(side=tk.RIGHT, padx=5)
-    
-    # New method - export reference list
-    def export_reference_list(self, related_files):
-        """Export the list of related files"""
-        file_path = filedialog.asksaveasfilename(
-            title="Save Reference List",
-            defaultextension=".txt",
-            filetypes=[("Text files", "*.txt"), ("All files", "*.*")]
-        )
-        if not file_path:
-            return
-        
-        try:
-            with open(file_path, 'w', encoding='utf-8') as f:
-                f.write("# Referenced Files\n\n")
-                
-                # Group files by type
-                cs_files = [f for f in related_files if f.lower().endswith('.cs')]
-                xaml_files = [f for f in related_files if f.lower().endswith(('.xaml', '.axaml'))]
-                other_files = [f for f in related_files if not f.lower().endswith('.cs') and 
-                             not f.lower().endswith(('.xaml', '.axaml'))]
-                
-                # Write grouped files
-                f.write(f"## C# Files ({len(cs_files)})\n\n")
-                for file_path in sorted(cs_files):
-                    f.write(f"- {file_path}\n")
-                
-                f.write(f"\n## XAML/AXAML Files ({len(xaml_files)})\n\n")
-                for file_path in sorted(xaml_files):
-                    f.write(f"- {file_path}\n")
-                
-                if other_files:
-                    f.write(f"\n## Other Files ({len(other_files)})\n\n")
-                    for file_path in sorted(other_files):
-                        f.write(f"- {file_path}\n")
-            
-            messagebox.showinfo("Success", f"Reference list exported to {file_path}")
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to export reference list: {str(e)}")
-    
-    def open_code_visualizer(self, file_path=None):
-        """Open the code relationship visualizer for a file"""
-        if not file_path:
-            # Use the currently selected file if none is provided
-            if hasattr(self.app, 'selected_files') and self.app.selected_files:
-                file_path = self.app.selected_files[0]
-            else:
-                file_path = self.app.root_dir_var.get()
-                if not os.path.isfile(file_path):
-                    messagebox.showinfo("Information", "Please select a file to visualize.")
-                    return
-        
-        # Ensure we have a reference tracker
-        if not self.ensure_reference_tracker(os.path.dirname(file_path)):
-            return
-        
-        # Determine which visualizer to open based on file extension
-        ext = os.path.splitext(file_path)[1].lower()
-        
-        # Import visualizer classes directly (don't rely on integration function)
-        from code_visualizer import CodeRelationshipVisualizer, CSharpCodeViewer
-        
-        try:
-            if ext == '.cs' or ext in ['.xaml', '.axaml']:
-                # Open specialized C# viewer for C# or XAML files
-                CSharpCodeViewer(self.app.root, self.reference_tracker, file_path)
-            else:
-                # Open generic code relationship visualizer for other files
-                CodeRelationshipVisualizer(self.app.root, self.reference_tracker, file_path)
-            
-            if hasattr(self.app, 'log'):
-                self.app.log(f"Opened visualizer for {os.path.basename(file_path)}")
-        except Exception as e:
-            if hasattr(self.app, 'log'):
-                self.app.log(f"Error opening visualizer: {str(e)}")
-            messagebox.showerror("Error", f"Could not open visualizer: {str(e)}")
-    
-    def ensure_reference_tracker(self, directory=None):
-        """Ensure the reference tracker is initialized"""
-        if not directory:
-            directory = self.app.root_dir_var.get()
-        
-        if not self.reference_tracker:
-            if not directory:
-                messagebox.showinfo("Information", "Please select a root directory first.")
-                return False
-            
-            if hasattr(self.app, 'log'):
-                self.app.log(f"Initializing reference tracker for {directory}...")
-            
-            # Import and initialize the reference tracker
-            from reference_tracking import ReferenceTrackingManager
-            self.reference_tracker = ReferenceTrackingManager(directory, 
-                                                          self.app.log if hasattr(self.app, 'log') else None)
-            self.reference_tracker.parse_directory()
-            return True
-        
-        return True
-    
-    def show_reference_graph(self):
-        """Show a graph visualization of file references"""
-        # Check if we have a reference tracker
-        if not self.ensure_reference_tracker():
-            return
-        
-        # Get all files with references
-        if hasattr(self.app, 'selected_files') and self.app.selected_files:
-            # Use selected files as starting points
-            files = self.app.selected_files
-        else:
-            # Use all parsed files
-            messagebox.showinfo("Information", "Please select files for the reference graph or use 'Analyze All References'.")
-            return
-        
-        # Show input dialog for reference depth
-        from tkinter import simpledialog
-        depth = simpledialog.askinteger("Reference Depth", 
-                                      "Enter maximum reference depth (1-5):",
-                                      minvalue=1, maxvalue=5, initialvalue=2)
-        if not depth:
-            return
-        
-        # Find related files
-        if hasattr(self.app, 'log'):
-            self.app.log(f"Finding related files with depth {depth}...")
-        related_files = self.reference_tracker.find_related_files(files, depth)
-        
-        # Show reference summary dialog
-        self.show_reference_summary_dialog(related_files, files)
-    
-    def analyze_all_references(self):
-        """Analyze all references in the project"""
-        if not hasattr(self.app, 'root_dir_var'):
-            messagebox.showinfo("Information", "Reference tracking not available.")
-            return
-            
-        root_dir = self.app.root_dir_var.get()
-        if not root_dir:
-            messagebox.showinfo("Information", "Please select a root directory first.")
-            return
-        
-        # Create reference tracker
-        from reference_tracking import ReferenceTrackingManager
-        if hasattr(self.app, 'log'):
-            self.app.log("Analyzing all references in the project...")
-        self.reference_tracker = ReferenceTrackingManager(root_dir, 
-                                                      self.app.log if hasattr(self.app, 'log') else None)
-        files_parsed = self.reference_tracker.parse_directory()
-        
-        # Create a simple confirmation with file count
-        messagebox.showinfo("Reference Analysis", 
-                          f"Analyzed {files_parsed} files.\n\n"
-                          "You can now use the file browser or visualize specific files.")
-        
-        # Open the file browser with all files
-        self.open_file_browser()
 
 
 if __name__ == "__main__":

@@ -2427,23 +2427,27 @@ def add_code_visualizer_to_app(app_class):
                 if not os.path.isfile(file_path):
                     messagebox.showinfo("Information", "Please select a file to visualize.")
                     return
+    
+        # Import the visualizer class directly
+        try:
+            from code_visualizer import CodeRelationshipVisualizer
         
-        # Get reference tracker
-        if not hasattr(self, 'reference_tracker') or not self.reference_tracker:
-            # Create reference tracker if it doesn't exist
-            from reference_tracking import ReferenceTrackingManager
-            root_dir = os.path.dirname(file_path) if os.path.isfile(file_path) else file_path
-            self.reference_tracker = ReferenceTrackingManager(root_dir, self.log)
-            self.reference_tracker.parse_directory()
+            # Initialize reference tracker if needed
+            if not hasattr(self, 'reference_tracker') or not self.reference_tracker:
+                from reference_tracking import ReferenceTrackingManager
+                root_dir = os.path.dirname(file_path) if os.path.isfile(file_path) else file_path
+                self.reference_tracker = ReferenceTrackingManager(root_dir, self.log)
+                self.reference_tracker.parse_directory()
         
-        # Determine which visualizer to open based on file extension
-        ext = os.path.splitext(file_path)[1].lower()
-        if ext == '.cs' or ext in ['.xaml', '.axaml']:
-            # Open specialized C# viewer for C# or XAML files
-            CSharpCodeViewer(self.root, self.reference_tracker, file_path)
-        else:
-            # Open generic code relationship visualizer for other files
+            # Open the visualizer
             CodeRelationshipVisualizer(self.root, self.reference_tracker, file_path)
+        
+        except ImportError:
+            self.log("Error: Could not import visualization modules")
+            messagebox.showerror("Error", "Visualization modules could not be loaded")
+        except Exception as e:
+            self.log(f"Error opening visualizer: {str(e)}")
+            messagebox.showerror("Error", f"Could not open visualizer: {str(e)}")
     
     # Add method to show reference graph
     def show_reference_graph(self):
