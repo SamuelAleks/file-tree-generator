@@ -3,6 +3,7 @@ import datetime
 import argparse
 import sys
 import re
+import token_estimator
 
 
 def parse_args():
@@ -46,6 +47,12 @@ def parse_args():
                         help="Remove comments from file content")
     parser.add_argument("--exclude-empty-lines", "-eel", action="store_true",
                         help="Exclude empty lines from file content")
+    parser.add_argument("--enable-token-estimation", "-et", action="store_true",
+                        help="Enable token estimation")
+    parser.add_argument("--token-model", "-tm", default="claude-3.5-sonnet",
+                        help="Token estimation model to use")
+    parser.add_argument("--token-method", "-tmt", choices=["char", "word"], default="char",
+                        help="Token estimation method (character or word based)")
     
     return parser.parse_args()
 
@@ -56,9 +63,9 @@ that maximizes token efficiency while preserving all data.
 def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, blacklist_files=None, 
                   max_lines=1000, max_line_length=300, compact_view=False, ultra_compact_view=False,
                   remove_comments=False, exclude_empty_lines=False,
-                  #hide_binary_files=False, 
                   smart_truncate=False, hide_repeated_sections=False,
-                  priority_folders=None, priority_files=None, referenced_files=None):
+                  priority_folders=None, priority_files=None, referenced_files=None,
+                  enable_token_estimation=False, token_model="claude-3.5-sonnet", token_method="char"):
     """
     Generate a text-based visual representation of a directory tree and file contents.
     
@@ -80,6 +87,9 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
     priority_folders (list): Folders to prioritize in the output
     priority_files (list): Files to prioritize in the output
     referenced_files (set): Set of files that are referenced (for reference tracking mode)
+    enable_token_estimation (bool): Whether to include token estimates
+    token_model (str): Model to use for token estimation
+    token_method (str): Method for token estimation (char or word)
     """
     # Initialize lists and options
     blacklist_folders = set(blacklist_folders or [])
@@ -98,6 +108,48 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
     # Initialize the output string
     output = []
     
+    # Perform token estimation if enabled
+    token_info = None
+    token_results = None
+    token_output_estimate = None
+    
+    if enable_token_estimation:
+        # Create a set of files to analyze
+        files_to_analyze = set()
+        
+        if reference_tracking_mode and referenced_files:
+            # If in reference tracking mode, use referenced files
+            files_to_analyze = referenced_files
+        else:
+            # Otherwise, walk the directory tree to find matching files
+            for root, dirs, files in os.walk(root_dir):
+                # Skip blacklisted directories
+                if os.path.basename(root) in blacklist_folders:
+                    continue
+                    
+                for file in files:
+                    # Skip blacklisted files
+                    if file in blacklist_files:
+                        continue
+                        
+                    # Check extensions
+                    if any(file.endswith(ext) for ext in extensions):
+                        file_path = os.path.join(root, file)
+                        files_to_analyze.add(file_path)
+        
+        # Perform token estimation on selected files
+        token_results = token_estimator.estimate_tokens_for_directory(
+            root_dir,
+            extensions=extensions,
+            blacklist_folders=blacklist_folders,
+            blacklist_files=blacklist_files,
+            model=token_model,
+            method=token_method
+        )
+        
+        # Format token estimation summary
+        token_info = token_estimator.format_token_summary(token_results, root_dir)
+    
     # Minimal header in ultra-compact mode
     if ultra_compact_view:
         output.append(f"TREE:{os.path.abspath(root_dir)}")
@@ -105,12 +157,16 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
         output.append(f"EXT:{','.join(extensions)}")
         if reference_tracking_mode:
             output.append(f"REF:{len(referenced_files)}")
+        if enable_token_estimation and token_results:
+            output.append(f"TOKENS:{token_results['total_tokens']}")
     else:
         output.append(f"File Structure - {os.path.abspath(root_dir)}")
         output.append(f"Scan Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         output.append(f"Extensions: {', '.join(extensions)}")
         if reference_tracking_mode:
             output.append(f"Reference Tracking: Enabled (tracking {len(referenced_files)} files)")
+        if enable_token_estimation and token_results:
+            output.append(f"Token Estimation: Enabled (Model: {token_results['model_name']}, Est. Tokens: {token_results['total_tokens']:,})")
         output.append("=" * 80)
     
     output.append("")
@@ -478,37 +534,53 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
         for i, file in enumerate(priority_files):
             output.append(f"  {i+1}. {file}")
     
-    # Add reference tracking summary if enabled
-    if reference_tracking_mode:
-        output.append("\nREFERENCE TRACKING SUMMARY")
+    if enable_token_estimation and token_info:
+        output.append("\n" + "=" * 80 + "\n")
+        output.append("TOKEN ESTIMATION DETAILS")
         output.append("-" * 80)
-        output.append(f"Total referenced files: {len(referenced_files)}")
+        output.append(token_info)
         
-        # Add file extension statistics
-        extension_stats = {}
-        for file_path in referenced_files:
-            _, ext = os.path.splitext(file_path)
-            if ext:
-                extension_stats[ext] = extension_stats.get(ext, 0) + 1
+        # Estimate tokens in the output file too
+        output_text = "\n".join(output)
+        output_tokens = token_estimator.estimate_tokens_for_text(output_text, token_model, token_method)
         
-        if extension_stats:
-            output.append("\nReferenced file types:")
-            for ext, count in sorted(extension_stats.items(), key=lambda x: x[1], reverse=True):
-                output.append(f"  {ext}: {count} files")
+        output.append("\nToken Estimation for Output File:")
+        output.append(f"Estimated tokens in this file: {output_tokens:,}")
+        
+        if token_results and token_results['total_tokens'] > 0:
+            # Calculate and display the ratio
+            ratio = output_tokens / token_results['total_tokens']
+            change = output_tokens - token_results['total_tokens']
+            change_pct = (change / token_results['total_tokens']) * 100
             
-    output.append("\n" + "=" * 80 + "\n")
-    output.append("DETAILED FILE TREE WITH CONTENTS")
-    output.append("-" * 80)
+            output.append(f"Change from raw files: {change:+,} tokens ({change_pct:+.1f}%)")
+            output.append(f"Output/Raw ratio: {ratio:.2f}")
+            
+            # Create a dict to mimic format expected by compare_token_estimates
+            token_output_estimate = {
+                "total_tokens": output_tokens,
+                "processed_files": 1  # Just one output file
+            }
+            
+            # Add comparison summary
+            comparison = token_estimator.compare_token_estimates(token_results, token_output_estimate)
+            output.append("\n" + comparison)
     
-    # Process the root directory
-    process_directory(root_dir)
-
     # Write to output file
     success, error = safe_write_file(output_file, output)
     if not success:
         return f"Error: {error}"
 
-    return f"Text tree file generated successfully at {os.path.abspath(output_file)}"
+    result = f"Text tree file generated successfully at {os.path.abspath(output_file)}"
+    
+    # Add token information to the result message
+    if enable_token_estimation and token_results:
+        result += f"\nEstimated tokens in raw files: {token_results['total_tokens']:,}"
+        if token_output_estimate:
+            result += f"\nEstimated tokens in output file: {token_output_estimate['total_tokens']:,}"
+    
+    return result
+
 
 def process_file_content(file_path, lines, hide_binary=False, smart_truncate=False, 
                        hide_repeated=False, max_line_length=300):
@@ -1155,8 +1227,14 @@ if __name__ == "__main__":
             max_lines=args.max_lines,
             max_line_length=args.max_line_length,
             compact_view=args.compact,
+            ultra_compact_view=args.ultra_compact if hasattr(args, 'ultra_compact') else False,
+            remove_comments=args.remove_comments if hasattr(args, 'remove_comments') else False,
+            exclude_empty_lines=args.exclude_empty_lines if hasattr(args, 'exclude_empty_lines') else False,
             priority_folders=args.priority_folders,
-            priority_files=args.priority_files
+            priority_files=args.priority_files,
+            enable_token_estimation=args.enable_token_estimation if hasattr(args, 'enable_token_estimation') else False,
+            token_model=args.token_model if hasattr(args, 'token_model') else "claude-3.5-sonnet",
+            token_method=args.token_method if hasattr(args, 'token_method') else "char"
         )
         
         # If format is not txt, convert to the desired format

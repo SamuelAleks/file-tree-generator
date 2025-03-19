@@ -26,7 +26,14 @@ def load_config():
         "priority_files": ["index.html", "main.js", "config.json"],
         "max_lines": 1000,
         "max_line_length": 300,
-        "compact_view": False
+        "compact_view": False,
+        # Token estimation settings
+        "enable_token_estimation": False,
+        "token_estimation_model": "claude-3.5-sonnet",
+        "token_estimation_method": "char",
+        "custom_char_factor": 0.25,
+        "custom_word_factor": 1.3,
+        "show_all_models": False
     }
     
     try:

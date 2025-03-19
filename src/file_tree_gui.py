@@ -7,6 +7,7 @@ import webbrowser
 from tkinter.scrolledtext import ScrolledText
 from file_selector import FileSelector
 from reference_tracking import ReferenceTrackingManager
+from token_estimator import get_available_models, get_model_factors
 
 # Import your existing function and config utilities
 from file_tree_generator import (
@@ -205,6 +206,81 @@ class FileTreeGeneratorApp:
         self.create_tooltip(efficiency_frame.winfo_children()[5], 
                          "Collapse repeated code sections and show only once")
 
+        # Token estimation frame
+        token_frame = ttk.LabelFrame(main_frame, text="Token Estimation", padding="10")
+        token_frame.pack(fill=tk.X, pady=5)
+
+        # Enable token estimation checkbox
+        self.enable_token_estimation_var = tk.BooleanVar(value=self.config.get('enable_token_estimation', False))
+        ttk.Checkbutton(token_frame, text="Enable Token Estimation", 
+                       variable=self.enable_token_estimation_var,
+                       command=self.toggle_token_options).grid(row=0, column=0, sticky=tk.W, pady=5)
+
+        # Model selection
+        ttk.Label(token_frame, text="Estimation Model:").grid(row=0, column=1, sticky=tk.W, padx=(20, 5), pady=5)
+        self.token_model_var = tk.StringVar(value=self.config.get('token_estimation_model', 'claude-3.5-sonnet'))
+        self.token_model_combo = ttk.Combobox(token_frame, textvariable=self.token_model_var, width=15)
+
+        # Get models list
+        available_models = get_available_models()
+        model_ids = [m[0] for m in available_models]
+        model_names = [m[1] for m in available_models]
+        self.token_model_combo['values'] = model_names
+        self.token_model_map = dict(zip(model_names, model_ids))  # For lookup
+        self.token_model_combo['state'] = 'readonly'
+        self.token_model_combo.grid(row=0, column=2, sticky=tk.W)
+        self.token_model_combo.bind('<<ComboboxSelected>>', self.on_model_selected)
+
+        # Estimation method
+        ttk.Label(token_frame, text="Method:").grid(row=0, column=3, sticky=tk.W, padx=(20, 5), pady=5)
+        self.token_method_var = tk.StringVar(value=self.config.get('token_estimation_method', 'char'))
+        method_combo = ttk.Combobox(token_frame, textvariable=self.token_method_var, width=10)
+        method_combo['values'] = ('char', 'word')
+        method_combo['state'] = 'readonly'
+        method_combo.grid(row=0, column=4, sticky=tk.W)
+
+        # Show all models toggle
+        self.show_all_models_var = tk.BooleanVar(value=self.config.get('show_all_models', False))
+        ttk.Checkbutton(token_frame, text="Show All Models", 
+                       variable=self.show_all_models_var,
+                       command=self.toggle_show_all_models).grid(row=1, column=0, sticky=tk.W, pady=5)
+
+        # Custom model factors (only shown for custom model)
+        self.custom_char_factor_var = tk.DoubleVar(value=self.config.get('custom_char_factor', 0.25))
+        self.custom_word_factor_var = tk.DoubleVar(value=self.config.get('custom_word_factor', 1.3))
+
+        self.custom_factor_frame = ttk.Frame(token_frame)
+        self.custom_factor_frame.grid(row=1, column=1, columnspan=4, sticky=tk.W, pady=5)
+
+        ttk.Label(self.custom_factor_frame, text="Custom Factors - Char:").pack(side=tk.LEFT, padx=(0, 5))
+        char_factor_spinbox = ttk.Spinbox(self.custom_factor_frame, from_=0.1, to=1.0, increment=0.05, 
+                                        width=5, textvariable=self.custom_char_factor_var)
+        char_factor_spinbox.pack(side=tk.LEFT)
+
+        ttk.Label(self.custom_factor_frame, text="Word:").pack(side=tk.LEFT, padx=(10, 5))
+        word_factor_spinbox = ttk.Spinbox(self.custom_factor_frame, from_=0.5, to=3.0, increment=0.1, 
+                                        width=5, textvariable=self.custom_word_factor_var)
+        word_factor_spinbox.pack(side=tk.LEFT)
+
+        # Token count preview
+        ttk.Label(token_frame, text="Raw File Token Preview:").grid(row=2, column=0, sticky=tk.W, pady=5)
+        self.token_preview_var = tk.StringVar(value="No files selected")
+        ttk.Label(token_frame, textvariable=self.token_preview_var).grid(row=2, column=1, columnspan=4, sticky=tk.W)
+
+        # Tooltips for token estimation options
+        self.create_tooltip(token_frame.winfo_children()[0],
+                          "Enable estimation of token counts for language models")
+        self.create_tooltip(self.token_model_combo,
+                          "Select which language model to estimate tokens for")
+        self.create_tooltip(method_combo,
+                          "Character-based is faster, word-based may be more accurate for some models")
+        self.create_tooltip(token_frame.winfo_children()[4],
+                          "Include token estimates for all models in output")
+
+        # Initialize token options state
+        self.toggle_token_options()
+        self.update_custom_factor_visibility()
+
         # Create buttons frame
         buttons_frame = ttk.Frame(main_frame)
         buttons_frame.pack(fill=tk.X, pady=10)
@@ -233,7 +309,128 @@ class FileTreeGeneratorApp:
         # Check for updates at startup (non-blocking)
         check_updates_at_startup(self.root)
 
+    def toggle_token_options(self):
+        """Enable or disable token estimation options based on checkbox"""
+        state = "normal" if self.enable_token_estimation_var.get() else "disabled"
+    
+        try:
+            # Update state of token estimation controls
+            self.token_model_combo.configure(state=state)
+            self.token_model_combo.configure(state='readonly' if state == 'normal' else 'disabled')
+        
+            # Update other token controls
+            for child in self.token_model_combo.master.winfo_children()[2:]:
+                try:
+                    child.configure(state=state)
+                except:
+                    pass
+            
+            # Update custom factor visibility
+            self.update_custom_factor_visibility()
+        
+            # Update token preview
+            if self.enable_token_estimation_var.get():
+                self.update_token_preview()
+            else:
+                self.token_preview_var.set("Token estimation disabled")
+        except Exception as e:
+            print(f"Error in toggle_token_options: {str(e)}")
 
+    def update_custom_factor_visibility(self):
+        """Show or hide custom factor settings based on selected model"""
+        try:
+            if self.enable_token_estimation_var.get():
+                model_name = self.token_model_var.get()
+                model_id = self.token_model_map.get(model_name, "claude-3.5-sonnet")
+            
+                if model_id == "custom":
+                    self.custom_factor_frame.grid()
+                else:
+                    self.custom_factor_frame.grid_remove()
+            else:
+                self.custom_factor_frame.grid_remove()
+        except Exception as e:
+            print(f"Error in update_custom_factor_visibility: {str(e)}")
+
+    def on_model_selected(self, event=None):
+        """Handle model selection change"""
+        self.update_custom_factor_visibility()
+        self.update_token_preview()
+
+    def toggle_show_all_models(self):
+        """Handle show all models toggle"""
+        self.update_token_preview()
+
+    # Fixed update_token_preview method - Focus on the threading part
+
+    def update_token_preview(self):
+        """Update token count preview based on selected files or directory"""
+        try:
+            if not self.enable_token_estimation_var.get():
+                self.token_preview_var.set("Token estimation disabled")
+                return
+            
+            root_dir = self.root_dir_var.get()
+            if not root_dir or not os.path.isdir(root_dir):
+                self.token_preview_var.set("No valid directory selected")
+                return
+            
+            # Get settings
+            model_name = self.token_model_var.get()
+            model_id = self.token_model_map.get(model_name, "claude-3.5-sonnet")
+            method = self.token_method_var.get()
+        
+            # Handle custom model factors
+            if model_id == "custom":
+                char_factor = self.custom_char_factor_var.get()
+                word_factor = self.custom_word_factor_var.get()
+                token_estimator.save_custom_model_factors(char_factor, word_factor)
+            
+            # Parse extensions
+            extensions_str = self.extensions_var.get().strip()
+            if not extensions_str:
+                self.token_preview_var.set("No file extensions specified")
+                return
+            
+            extensions = set(ext if ext.startswith(".") else f".{ext}" for ext in extensions_str.split())
+        
+            # Parse blacklists
+            blacklist_folders = set(self.blacklist_folders_var.get().split())
+            blacklist_files = set(self.blacklist_files_var.get().split())
+        
+            # Update preview with quick estimation (limit to 500 files for performance)
+            self.token_preview_var.set("Estimating tokens...")
+            self.root.update()
+        
+            # Run estimation in a separate thread to avoid UI freezing
+            import threading
+        
+            def estimate_tokens():
+                try:
+                    result = token_estimator.estimate_tokens_for_directory(
+                        root_dir,
+                        extensions=extensions,
+                        blacklist_folders=blacklist_folders,
+                        blacklist_files=blacklist_files,
+                        model=model_id,
+                        method=method,
+                        max_files=500  # Limit for preview
+                    )
+                
+                    # Update UI in main thread - fixed to use success_callback
+                    self.root.after(0, lambda: self.token_preview_var.set(
+                        f"Estimated tokens: {result['total_tokens']:,} in {result['processed_files']} files" +
+                        (f" (limited preview)" if result['skipped_files'] > 0 else "")
+                    ))
+                except Exception as e:
+                    # Fixed: Pass error message as a parameter to avoid scope issues
+                    error_msg = str(e)
+                    self.root.after(0, lambda msg=error_msg: self.token_preview_var.set(f"Error: {msg}"))
+                
+            threading.Thread(target=estimate_tokens, daemon=True).start()
+        
+        except Exception as e:
+            self.token_preview_var.set(f"Error: {str(e)}")
 
     def create_tooltip(self, widget, text):
         """Create a tooltip for a widget"""
@@ -306,6 +503,9 @@ class FileTreeGeneratorApp:
         
             priority_folders = [folder for folder in self.priority_folders_var.get().split() if folder]
             priority_files = [file for file in self.priority_files_var.get().split() if file]
+            # Get token estimation settings
+            model_name = self.token_model_var.get()
+            model_id = self.token_model_map.get(model_name, "claude-3.5-sonnet")
         
             # Create config dictionary
             config = {
@@ -330,7 +530,14 @@ class FileTreeGeneratorApp:
                 'smart_truncate': self.smart_truncate_var.get(),
                 #'hide_binary_files': self.hide_binary_files_var.get(),
                 'hide_repeated_sections': self.hide_repeated_sections_var.get(),
-            }
+                # Token estimation settings
+                'enable_token_estimation': self.enable_token_estimation_var.get(),
+                'token_estimation_model': model_id,
+                'token_estimation_method': self.token_method_var.get(),
+                'custom_char_factor': self.custom_char_factor_var.get(),
+                'custom_word_factor': self.custom_word_factor_var.get(),
+                'show_all_models': self.show_all_models_var.get()
+                }
         
             # Save config
             if save_config(config):
@@ -472,11 +679,36 @@ class FileTreeGeneratorApp:
                         f.write("\n")
         
                 self.log(f"Saved list of referenced files to {reference_list_file}")
-    
+            
+            
+            # Add token estimation parameters
+            enable_token_estimation = self.enable_token_estimation_var.get()
+            token_model = self.token_model_map.get(self.token_model_var.get(), "claude-3.5-sonnet")
+            token_method = self.token_method_var.get()
+        
+            
+            # Log token estimation settings if enabled
+            if enable_token_estimation:
+                self.log(f"Token estimation enabled for model: {self.token_model_var.get()}")
+                self.log(f"Estimation method: {'Character-based' if token_method == 'char' else 'Word-based'}")
+            
+                # Update custom model factors if using custom model
+                if token_model == "custom":
+                    char_factor = self.custom_char_factor_var.get()
+                    word_factor = self.custom_word_factor_var.get()
+                    token_estimator.save_custom_model_factors(char_factor, word_factor)
+                    self.log(f"Using custom factors - Char: {char_factor}, Word: {word_factor}")
+            
+                # If showing all models is enabled, log that
+                if self.show_all_models_var.get():
+                    self.log("Including estimates for all models in output")
+
+
             # Create a temporary text output file
             temp_output = output_file
             if export_format != 'txt':
                 temp_output = output_file + '.temp.txt'
+        
 
             # Generate file tree - TEMPORARY FIX: Don't pass referenced_files since current function doesn't support it
             result = create_file_tree(
@@ -492,11 +724,14 @@ class FileTreeGeneratorApp:
                 remove_comments=self.remove_comments_var.get(),
                 exclude_empty_lines=self.exclude_empty_lines_var.get(),
                 #hide_binary_files=self.hide_binary_files_var.get(),
-                #smart_truncate=self.smart_truncate_var.get(), 
-                #hide_repeated_sections=self.hide_repeated_sections_var.get(),
+                smart_truncate=self.smart_truncate_var.get(), 
+                hide_repeated_sections=self.hide_repeated_sections_var.get(),
                 priority_folders=priority_folders,
                 priority_files=priority_files,
-                referenced_files=referenced_files
+                referenced_files=referenced_files,
+                enable_token_estimation=enable_token_estimation,
+                token_model=token_model,
+                token_method=token_method
             )
 
             # Convert to desired format if needed
