@@ -616,56 +616,56 @@ class VisualizationManager:
         help_text = """
         Code Visualization Features
         ==========================
-        
+    
         This application includes several tools to help you understand your code structure:
-        
+    
         1. File Relationship Visualizer
            - Shows how files connect through references
            - Displays file content with syntax highlighting
            - Navigate between related files
-        
+    
         2. Method Relationship Visualizer
            - Visualize method connections in an interactive canvas
            - See which methods call your method and which ones it calls
            - Drag methods to rearrange the view
            - Double-click methods to see their contents
-        
+    
         3. Reference Graph
            - Analyze which files connect to your selected files
            - Control the depth of reference tracking
            - Get statistics on the most referenced files
-        
+    
         How to use:
         - Select a file or files to analyze
         - Choose the appropriate visualization from the Visualize menu
         - Drag nodes to rearrange the view
         - Double-click on items to see more details
-        
+    
         The visualizer uses static analysis to find connections between code elements
         and does not require running the code.
         """
-        
+    
         # Create help dialog
         dialog = tk.Toplevel(self.app.root)
         dialog.title("Visualization Help")
         dialog.geometry("600x500")
         dialog.transient(self.app.root)
-        
+    
         # Add text area with scrollbar
         frame = ttk.Frame(dialog)
         frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
+    
         text = tk.Text(frame, wrap=tk.WORD)
         text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        
-        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=text.yview)
+    
+        scrollbar = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=text.yview)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         text.configure(yscrollcommand=scrollbar.set)
-        
+    
         # Insert help text
         text.insert('1.0', help_text)
         text.config(state=tk.DISABLED)
-        
+    
         # Close button
         ttk.Button(dialog, text="Close", command=dialog.destroy).pack(pady=10)
     

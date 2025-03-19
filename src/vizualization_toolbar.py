@@ -46,7 +46,7 @@ class VisualizationToolbar:
         )
         self.file_button.pack(side=tk.TOP, pady=2, padx=5)
         
-        # Method visualizer button (new)
+        # Method visualizer button
         self.method_button = ttk.Button(
             vis_frame, 
             text="Method Relationships", 
@@ -65,8 +65,12 @@ class VisualizationToolbar:
         self.graph_button.pack(side=tk.TOP, pady=2, padx=5)
         
         # Configure button styles
-        style = ttk.Style()
-        style.configure('Toolbutton', font=('Arial', 9))
+        try:
+            style = ttk.Style()
+            style.configure('Toolbutton', font=('Arial', 9))
+        except Exception:
+            # Ignore style errors
+            pass
         
         # Add tooltips
         self.create_tooltip(self.file_button, "View relationships between files and their contents")
@@ -76,21 +80,38 @@ class VisualizationToolbar:
     def create_tooltip(self, widget, text):
         """Create a tooltip for a widget"""
         def enter(event):
-            tooltip = tk.Toplevel(widget)
-            tooltip.overrideredirect(True)
-            tooltip.geometry(f"+{event.x_root+15}+{event.y_root+10}")
-        
-            label = ttk.Label(tooltip, text=text, background="#FFFFD0", relief="solid", borderwidth=1)
-            label.pack()
-        
-            widget.tooltip = tooltip
+            try:
+                # Create tooltip only when mouse enters
+                tooltip = tk.Toplevel(widget)
+                tooltip.overrideredirect(True)
+                tooltip.geometry(f"+{event.x_root+15}+{event.y_root+10}")
+            
+                label = ttk.Label(tooltip, text=text, background="#FFFFD0", relief="solid", borderwidth=1)
+                label.pack()
+            
+                # Store tooltip reference
+                widget.tooltip = tooltip
+            except Exception:
+                # Ignore tooltip errors
+                pass
         
         def leave(event):
+            # Remove tooltip when mouse leaves
             if hasattr(widget, "tooltip"):
-                widget.tooltip.destroy()
+                try:
+                    widget.tooltip.destroy()
+                    delattr(widget, "tooltip")
+                except Exception:
+                    # Ignore tooltip errors
+                    pass
             
-        widget.bind("<Enter>", enter)
-        widget.bind("<Leave>", leave)
+        # Bind events with try/except to prevent errors
+        try:
+            widget.bind("<Enter>", enter)
+            widget.bind("<Leave>", leave)
+        except Exception:
+            # Ignore binding errors
+            pass
     
     def open_file_visualizer(self):
         """Open the file relationship visualizer"""

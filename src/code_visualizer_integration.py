@@ -1,3 +1,5 @@
+# Update to code_visualizer_integration.py to fix integration issues
+
 import os
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
@@ -18,12 +20,16 @@ class CodeVisualizerIntegration:
         # Link directly to visualization manager if available
         if hasattr(app_instance, 'visualization_manager'):
             self.visualization_manager = app_instance.visualization_manager
+            self.log("Connected to existing visualization manager")
         else:
             # Try to initialize the visualization manager
             self.init_visualization_manager()
         
         # Add toolbar integration
         self.add_visualize_toolbar()
+        
+        # Add direct method references to the app for convenience
+        self.setup_convenience_methods()
     
     def init_visualization_manager(self):
         """Initialize visualization manager if needed"""
@@ -36,13 +42,34 @@ class CodeVisualizerIntegration:
                 # Add reference to the app
                 if hasattr(self.app, 'visualization_manager'):
                     self.app.visualization_manager = self.visualization_manager
+                self.log("Visualization manager initialized")
             else:
                 self.log("visualization_manager module not available")
         except Exception as e:
             self.log(f"Error initializing visualization manager: {str(e)}")
     
+    def setup_convenience_methods(self):
+        """Set up direct method references for convenience and backward compatibility"""
+        # We'll only add these methods if they don't already exist on the app
+        
+        # File visualization
+        if not hasattr(self.app, 'open_code_visualizer'):
+            self.app.open_code_visualizer = self.open_code_visualizer
+            
+        # Method visualization
+        if not hasattr(self.app, 'open_method_visualizer'):
+            self.app.open_method_visualizer = self.open_method_visualizer
+            
+        # Reference graph
+        if not hasattr(self.app, 'show_reference_graph'):
+            self.app.show_reference_graph = self.show_reference_graph
+            
+        # All references visualization
+        if not hasattr(self.app, 'visualize_all_references'):
+            self.app.visualize_all_references = self.analyze_all_references
+    
     def log(self, message):
-        """Log a message to the app's logging system"""
+        """Log a message using the app's logging function if available"""
         if hasattr(self.app, 'log'):
             self.app.log(message)
         else:
@@ -105,76 +132,56 @@ class CodeVisualizerIntegration:
         # Only proceed if the app has a toolbar frame
         if not hasattr(self.app, 'root'):
             return
-            
-        # Look for existing toolbar or similar component
+    
+        # Try to find or create a toolbar frame
         toolbar_frame = None
-        
-        # First check if the app has an explicit toolbar_frame attribute
+    
+        # First check if we have a visualization toolbar module
+        try:
+            # Try to find the module without importing it first
+            import importlib.util
+            if importlib.util.find_spec("vizualization_toolbar"):
+                from vizualization_toolbar import VisualizationToolbar
+                # Create the toolbar
+                self.toolbar = VisualizationToolbar(self.app.root, self.app)
+                self.log("Added visualization toolbar")
+                return
+            else:
+                self.log("Visualization toolbar module not available")
+        except ImportError:
+            # No toolbar module, so we'll try to add tools to existing toolbar
+            self.log("Visualization toolbar import failed, adding to existing toolbar")
+        except Exception as e:
+            self.log(f"Error creating visualization toolbar: {str(e)}")
+    
+        # Look for existing toolbar or similar component
         if hasattr(self.app, 'toolbar_frame'):
             toolbar_frame = self.app.toolbar_frame
         else:
-            # Try to find a suitable frame by traversing widget hierarchy
-            def find_toolbar(widget):
-                # Check widget name for hints that it's a toolbar
-                if hasattr(widget, 'winfo_name') and 'toolbar' in widget.winfo_name().lower():
-                    return widget
-                
-                # Check if it's a frame with buttons - likely a toolbar
-                if isinstance(widget, (ttk.Frame, tk.Frame)) and \
-                   any(isinstance(child, (ttk.Button, tk.Button)) for child in widget.winfo_children()):
-                    return widget
-                    
-                # Check children recursively
-                for child in widget.winfo_children():
-                    result = find_toolbar(child)
-                    if result:
-                        return result
-                return None
-            
-            toolbar_frame = find_toolbar(self.app.root)
-        
-        # If we still don't have a toolbar, create one at the top level
-        if not toolbar_frame:
-            # See if we can find a main frame to add it to
-            main_frame = None
+            # Try to find a frame that looks like a toolbar
             for child in self.app.root.winfo_children():
-                if isinstance(child, (ttk.Frame, tk.Frame)) and child.winfo_children():
-                    main_frame = child
-                    break
-            
-            if not main_frame:
-                main_frame = self.app.root
-                
-            # Create a new toolbar frame
-            toolbar_frame = ttk.Frame(main_frame)
-            toolbar_frame.pack(fill=tk.X, padx=5, pady=5, before=main_frame.winfo_children()[0] 
-                              if main_frame.winfo_children() else None)
-        
-        # Now create the visualization section of the toolbar
-        self.create_visualize_toolbar(toolbar_frame)
+                if isinstance(child, ttk.Frame) and hasattr(child, 'winfo_children'):
+                    # If frame has buttons, it's probably a toolbar
+                    if any(isinstance(grandchild, ttk.Button) for grandchild in child.winfo_children()):
+                        toolbar_frame = child
+                        break
     
-    def create_visualize_toolbar(self, toolbar_frame):
-        """Add visualization tools to toolbar"""
-        # Create visualization section
-        vis_frame = ttk.LabelFrame(toolbar_frame, text="Visualization")
-        
-        # Try to place it smartly
-        if toolbar_frame.winfo_children():
-            vis_frame.pack(side=tk.LEFT, fill=tk.Y, padx=5, after=toolbar_frame.winfo_children()[-1])
-        else:
-            vis_frame.pack(side=tk.LEFT, fill=tk.Y, padx=5)
-        
-        # File relationship visualizer button
-        ttk.Button(vis_frame, text="File Relationships", 
-                  command=self.open_code_visualizer).pack(side=tk.TOP, pady=2)
-        
-        # Method visualizer button
-        ttk.Button(vis_frame, text="Method Relationships", 
-                  command=self.open_method_visualizer).pack(side=tk.TOP, pady=2)
-        
-        # Reference graph button
-        ttk.Button(vis_frame, text="Reference Graph", 
-                  command=self.show_reference_graph).pack(side=tk.TOP, pady=2)
+        # If we found a toolbar, add buttons to it
+        if toolbar_frame:
+            try:
+                # Use proper Tkinter button creation
+                file_button = ttk.Button(toolbar_frame, text="Code Visualizer", 
+                                     command=self.open_code_visualizer)
+                file_button.pack(side=tk.LEFT, padx=5)
+            
+                # Method visualizer button
+                method_button = ttk.Button(toolbar_frame, text="Method Visualizer", 
+                                        command=self.open_method_visualizer)
+                method_button.pack(side=tk.LEFT, padx=5)
+            
+                self.log("Added visualization buttons to existing toolbar")
+            except Exception as e:
+                self.log(f"Error adding toolbar buttons: {str(e)}")
     
     def open_code_visualizer(self, file_path=None):
         """
@@ -297,7 +304,7 @@ class CodeVisualizerIntegration:
             
             # Try to import the specialized method visualizer
             try:
-                from code_visualizer import MethodRelationshipVisualizer
+                from method_relationship_visualizer import MethodRelationshipVisualizer
                 
                 # Create the visualizer
                 visualizer = MethodRelationshipVisualizer(
@@ -338,23 +345,27 @@ class CodeVisualizerIntegration:
                 start_files = self.app.selected_files
             else:
                 # Let user select files
-                from file_selector import FileSelector
-                
-                # Get root directory
-                root_dir = None
-                if hasattr(self.app, 'root_dir_var'):
-                    root_dir = self.app.root_dir_var.get()
-                
-                if not root_dir or not os.path.isdir(root_dir):
-                    messagebox.showerror("Error", "Please select a valid root directory first")
+                try:
+                    from file_selector import FileSelector
+                    
+                    # Get root directory
+                    root_dir = None
+                    if hasattr(self.app, 'root_dir_var'):
+                        root_dir = self.app.root_dir_var.get()
+                    
+                    if not root_dir or not os.path.isdir(root_dir):
+                        messagebox.showerror("Error", "Please select a valid root directory first")
+                        return False
+                    
+                    # Open file selector
+                    file_selector = FileSelector(self.app.root, root_dir)
+                    self.app.root.wait_window(file_selector)
+                    
+                    # Get selected files
+                    start_files = file_selector.get_selected_files()
+                except ImportError:
+                    messagebox.showinfo("Information", "File selector not available")
                     return False
-                
-                # Open file selector
-                file_selector = FileSelector(self.app.root, root_dir)
-                self.app.root.wait_window(file_selector)
-                
-                # Get selected files
-                start_files = file_selector.get_selected_files()
         
         if not start_files:
             messagebox.showinfo("Information", "No files selected for reference graph")

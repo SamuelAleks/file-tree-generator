@@ -41,7 +41,7 @@ class FileTreeGeneratorApp:
         # Create main frame
         main_frame = ttk.Frame(root, padding="10")
         main_frame.pack(fill=tk.BOTH, expand=True)
-        
+    
         # Create input frame for directory and output file
         input_frame = ttk.LabelFrame(main_frame, text="Input/Output", padding="10")
         input_frame.pack(fill=tk.X, pady=5)
@@ -316,54 +316,67 @@ class FileTreeGeneratorApp:
         # Status log
         log_frame = ttk.LabelFrame(main_frame, text="Status Log", padding="10")
         log_frame.pack(fill=tk.BOTH, expand=True, pady=5)
-        
+    
         self.log_text = ScrolledText(log_frame, wrap=tk.WORD, height=10)
         self.log_text.pack(fill=tk.BOTH, expand=True)
         self.log_text.config(state=tk.DISABLED)
-        
+    
         # Check for updates at startup (non-blocking)
         check_updates_at_startup(self.root)
     
-        # Initialize code visualizer integration at the end
-        #self.initialize_visualizer()
-        
-        # Initialize visualization manager
-        from visualization_manager import VisualizationManager
-        self.visualization_manager = VisualizationManager(self)
-    
-        # For backward compatibility
-        #self.open_code_visualizer = self.visualization_manager.visualize_file
-        #self.open_method_visualizer = self.visualization_manager.visualize_method
+        # Initialize visualization components
+        self.initialize_visualization()
 
-        
-        self.initialize_visualizer()
-
-    def initialize_visualizer(self):
-        """Initialize the code visualizer integration"""
+    def initialize_visualization(self):
+        """Initialize all visualization components properly"""
         try:
-            # Import the integration class
-            from code_visualizer import add_code_visualizer_to_app
+            # First, initialize the VisualizationManager
+            from visualization_manager import VisualizationManager
+            self.visualization_manager = VisualizationManager(self)
+            self.log("Visualization manager initialized successfully")
         
-            # Apply the integration to this class
-            add_code_visualizer_to_app(self.__class__)
+            # Create direct method references for backward compatibility
+            self.open_code_visualizer = self.visualization_manager.visualize_file
+            self.open_method_visualizer = self.visualization_manager.visualize_method
+            self.show_reference_graph = self.visualization_manager.show_reference_graph
+            self.visualize_all_references = self.visualization_manager.visualize_all_references
         
-            # Initialize visualizer instance
-            self.visualizer = CodeVisualizerIntegration(self)
+            # Then try to set up the code_visualizer integration
+            try:
+                from code_visualizer import add_code_visualizer_to_app
+                add_code_visualizer_to_app(self.__class__)
+                self.log("Code visualizer integration successful")
+            except ImportError:
+                self.log("Code visualizer module not available, using VisualizationManager only")
+            except Exception as e:
+                self.log(f"Error setting up code visualizer: {str(e)}")
         
-            # Add direct references to methods for compatibility
-            if hasattr(self.visualizer, 'open_code_visualizer'):
-                self.open_code_visualizer = self.visualizer.open_code_visualizer
-            if hasattr(self.visualizer, 'show_reference_graph'):
-                self.show_reference_graph = self.visualizer.show_reference_graph
-            if hasattr(self.visualizer, 'analyze_all_references'):
-                self.visualize_all_references = self.visualizer.analyze_all_references
-            
-            self.log("Visualizer integration initialized successfully")
+            # Lastly, try to initialize the CodeVisualizerIntegration
+            try:
+                # Explicitly see if the module exists first to avoid import errors
+                import importlib.util
+                if importlib.util.find_spec("code_visualizer_integration"):
+                    from code_visualizer_integration import CodeVisualizerIntegration
+                    self.visualizer = CodeVisualizerIntegration(self)
+                    self.log("Visualizer integration initialized successfully")
+                else:
+                    self.log("CodeVisualizerIntegration module not available")
+            except ImportError:
+                self.log("CodeVisualizerIntegration not available")
+            except Exception as e:
+                self.log(f"Error initializing visualizer integration: {str(e)}")
+        
         except Exception as e:
-            self.log(f"Error initializing visualizer: {str(e)}")
-            # Add the basic method in case integration fails
+            self.log(f"Error initializing visualization components: {str(e)}")
+            # Provide fallback methods if visualization fails
             if not hasattr(self, 'open_code_visualizer'):
                 self.open_code_visualizer = lambda file_path=None: self.log("Visualizer not available")
+            if not hasattr(self, 'open_method_visualizer'):
+                self.open_method_visualizer = lambda file_path=None, method_name=None: self.log("Method visualizer not available")
+            if not hasattr(self, 'show_reference_graph'):
+                self.show_reference_graph = lambda start_files=None: self.log("Reference graph not available")
+            if not hasattr(self, 'visualize_all_references'):
+                self.visualize_all_references = lambda: self.log("Reference visualization not available")
 
     def visualize_references(self):
         """Open visualizer for selected reference files"""
