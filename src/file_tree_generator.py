@@ -171,44 +171,74 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
     
     output.append("")
     
+    # Generate barebones tree structure first
+    output.append("DIRECTORY STRUCTURE SUMMARY")
+    output.append("-" * 80)
+    
     relevant_files_cache = {}
-    def has_relevant_files(dir_path, ext_set):
-        """Check if directory or its subdirectories contain relevant files (with caching)"""
+    def has_relevant_files(dir_path, ext_set, referenced_files=None):
+        """
+        Check if directory or its subdirectories contain relevant files
+    
+        Args:
+            dir_path: Directory path to check
+            ext_set: Set of file extensions to include
+            referenced_files: Optional set of files for reference tracking mode
+        
+        Returns:
+            Boolean indicating if relevant files are found
+        """
         # Check cache first
         if dir_path in relevant_files_cache:
             return relevant_files_cache[dir_path]
-        
+    
         try:
             # Check if directory is blacklisted
             dir_name = os.path.basename(dir_path)
             if dir_name in blacklist_folders:
                 relevant_files_cache[dir_path] = False
                 return False
-            
+        
+            # If in reference tracking mode and no files in this folder are referenced,
+            # we can exit early
+            if referenced_files is not None:
+                # Check if any file in directory or subdirectories is in referenced_files
+                dir_prefix = dir_path + os.sep
+                has_any_referenced = any(
+                    f.startswith(dir_prefix) for f in referenced_files
+                )
+                if not has_any_referenced:
+                    relevant_files_cache[dir_path] = False
+                    return False
+        
             for item in os.listdir(dir_path):
                 full_path = os.path.join(dir_path, item)
                 if os.path.isfile(full_path):
                     if item in blacklist_files:
                         continue
-                    
-                    # If we're in reference tracking mode, check if the file is referenced
-                    if reference_tracking_mode:
-                        is_relevant_extension = any(item.endswith(ext) for ext in ext_set)
-                        is_referenced = full_path in referenced_files
-                        if is_relevant_extension and (not reference_tracking_mode or is_referenced):
+                
+                    # Check if file has relevant extension
+                    is_relevant_extension = any(item.endswith(ext) for ext in ext_set)
+                
+                    if is_relevant_extension:
+                        # If in reference tracking mode, only count referenced files
+                        if referenced_files is not None:
+                            if full_path in referenced_files:
+                                relevant_files_cache[dir_path] = True
+                                return True
+                        else:
+                            # In normal mode, any file with matching extension counts
                             relevant_files_cache[dir_path] = True
                             return True
-                    elif any(item.endswith(ext) for ext in ext_set):
-                        relevant_files_cache[dir_path] = True
-                        return True
-                        
+                    
                 elif os.path.isdir(full_path):
-                    if has_relevant_files(full_path, ext_set):
+                    if has_relevant_files(full_path, ext_set, referenced_files):
                         relevant_files_cache[dir_path] = True
                         return True
         
             relevant_files_cache[dir_path] = False
             return False
+        
         except (PermissionError, OSError):
             relevant_files_cache[dir_path] = False
             return False
@@ -534,6 +564,12 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
         for i, file in enumerate(priority_files):
             output.append(f"  {i+1}. {file}")
     
+    # Always process the directory content regardless of token estimation
+    output.append("\nDETAILED FILE TREE WITH CONTENTS")
+    output.append("-" * 80)
+    process_directory(root_dir)
+    
+    # Add token information at the end if enabled
     if enable_token_estimation and token_info:
         output.append("\n" + "=" * 80 + "\n")
         output.append("TOKEN ESTIMATION DETAILS")

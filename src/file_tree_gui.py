@@ -17,6 +17,7 @@ from file_tree_generator import (
     export_as_json
 )
 from config_utils import load_config, save_config
+import token_estimator
 from update_checker import check_updates_at_startup, add_update_check_to_menu, CURRENT_VERSION, GITHUB_REPO
 
 class FileTreeGeneratorApp:
@@ -312,27 +313,40 @@ class FileTreeGeneratorApp:
     def toggle_token_options(self):
         """Enable or disable token estimation options based on checkbox"""
         state = "normal" if self.enable_token_estimation_var.get() else "disabled"
-    
+        readonly_state = 'readonly' if self.enable_token_estimation_var.get() else 'disabled'
+        
         try:
-            # Update state of token estimation controls
-            self.token_model_combo.configure(state=state)
-            self.token_model_combo.configure(state='readonly' if state == 'normal' else 'disabled')
-        
-            # Update other token controls
-            for child in self.token_model_combo.master.winfo_children()[2:]:
-                try:
-                    child.configure(state=state)
-                except:
-                    pass
+            # Update token model combo state
+            if hasattr(self, 'token_model_combo'):
+                self.token_model_combo.configure(state=readonly_state)
             
-            # Update custom factor visibility
+            # Update method combo state
+            for child in self.token_model_combo.master.winfo_children():
+                if isinstance(child, ttk.Combobox) and child != self.token_model_combo:
+                    child.configure(state=readonly_state)
+            
+            # Update show all models checkbox
+            for child in self.token_model_combo.master.winfo_children():
+                if isinstance(child, ttk.Checkbutton) and "Show All Models" in str(child):
+                    child.configure(state=state)
+            
+            # Update custom factor frame
+            if hasattr(self, 'custom_factor_frame'):
+                for child in self.custom_factor_frame.winfo_children():
+                    child.configure(state=state)
+            
+            # Update visibility of custom factor frame
             self.update_custom_factor_visibility()
-        
-            # Update token preview
+            
+            # Update token preview if enabled
             if self.enable_token_estimation_var.get():
                 self.update_token_preview()
             else:
                 self.token_preview_var.set("Token estimation disabled")
+                
+            # Include a user-friendly message about token estimation
+            if self.enable_token_estimation_var.get():
+                self.log("Token estimation enabled - file contents will still be included in the output")
         except Exception as e:
             print(f"Error in toggle_token_options: {str(e)}")
 
@@ -369,42 +383,42 @@ class FileTreeGeneratorApp:
             if not self.enable_token_estimation_var.get():
                 self.token_preview_var.set("Token estimation disabled")
                 return
-            
+        
             root_dir = self.root_dir_var.get()
             if not root_dir or not os.path.isdir(root_dir):
                 self.token_preview_var.set("No valid directory selected")
                 return
-            
+        
             # Get settings
             model_name = self.token_model_var.get()
             model_id = self.token_model_map.get(model_name, "claude-3.5-sonnet")
             method = self.token_method_var.get()
-        
+    
             # Handle custom model factors
             if model_id == "custom":
                 char_factor = self.custom_char_factor_var.get()
                 word_factor = self.custom_word_factor_var.get()
                 token_estimator.save_custom_model_factors(char_factor, word_factor)
-            
+        
             # Parse extensions
             extensions_str = self.extensions_var.get().strip()
             if not extensions_str:
                 self.token_preview_var.set("No file extensions specified")
                 return
-            
-            extensions = set(ext if ext.startswith(".") else f".{ext}" for ext in extensions_str.split())
         
+            extensions = set(ext if ext.startswith(".") else f".{ext}" for ext in extensions_str.split())
+    
             # Parse blacklists
             blacklist_folders = set(self.blacklist_folders_var.get().split())
             blacklist_files = set(self.blacklist_files_var.get().split())
-        
+    
             # Update preview with quick estimation (limit to 500 files for performance)
             self.token_preview_var.set("Estimating tokens...")
             self.root.update()
-        
+    
             # Run estimation in a separate thread to avoid UI freezing
             import threading
-        
+    
             def estimate_tokens():
                 try:
                     result = token_estimator.estimate_tokens_for_directory(
@@ -416,19 +430,21 @@ class FileTreeGeneratorApp:
                         method=method,
                         max_files=500  # Limit for preview
                     )
-                
-                    # Update UI in main thread - fixed to use success_callback
+            
+                    # Update UI in main thread with a properly defined lambda
                     self.root.after(0, lambda: self.token_preview_var.set(
                         f"Estimated tokens: {result['total_tokens']:,} in {result['processed_files']} files" +
-                        (f" (limited preview)" if result['skipped_files'] > 0 else "")
+                        (f" (limited preview)" if result.get('skipped_files', 0) > 0 else "")
                     ))
                 except Exception as e:
-                    # Fixed: Pass error message as a parameter to avoid scope issues
+                    # Store error message in a variable to avoid lambda scope issues
                     error_msg = str(e)
-                    self.root.after(0, lambda msg=error_msg: self.token_preview_var.set(f"Error: {msg}"))
-                
-            threading.Thread(target=estimate_tokens, daemon=True).start()
+                    self.root.after(0, lambda: self.token_preview_var.set(f"Error: {error_msg}"))
         
+            # Start the thread
+            token_thread = threading.Thread(target=estimate_tokens, daemon=True)
+            token_thread.start()
+    
         except Exception as e:
             self.token_preview_var.set(f"Error: {str(e)}")
 
@@ -456,10 +472,25 @@ class FileTreeGeneratorApp:
         # If ultra-compact is enabled, automatically enable compact
         if self.ultra_compact_view_var.get():
             self.compact_view_var.set(True)
-        
-        # Optional: You could automatically enable other efficiency options
-        # when ultra-compact is selected, but it's probably better to
-        # let the user control these independently
+    
+        # Update UI to reflect the relationship between these options
+        # This avoids confusion when both options are enabled
+        if self.ultra_compact_view_var.get():
+            for widget in self.root.winfo_children():
+                if hasattr(widget, 'winfo_children'):
+                    for child in widget.winfo_children():
+                        if hasattr(child, 'winfo_children'):
+                            for grandchild in child.winfo_children():
+                                if isinstance(grandchild, ttk.Checkbutton) and "Compact View" in str(grandchild):
+                                    grandchild.configure(state="disabled")
+        else:
+            for widget in self.root.winfo_children():
+                if hasattr(widget, 'winfo_children'):
+                    for child in widget.winfo_children():
+                        if hasattr(child, 'winfo_children'):
+                            for grandchild in child.winfo_children():
+                                if isinstance(grandchild, ttk.Checkbutton) and "Compact View" in str(grandchild):
+                                    grandchild.configure(state="normal")
 
     def toggle_compact_options(self):
         """Disable compact view if ultra-compact is enabled"""
@@ -680,13 +711,11 @@ class FileTreeGeneratorApp:
         
                 self.log(f"Saved list of referenced files to {reference_list_file}")
             
-            
             # Add token estimation parameters
             enable_token_estimation = self.enable_token_estimation_var.get()
             token_model = self.token_model_map.get(self.token_model_var.get(), "claude-3.5-sonnet")
             token_method = self.token_method_var.get()
         
-            
             # Log token estimation settings if enabled
             if enable_token_estimation:
                 self.log(f"Token estimation enabled for model: {self.token_model_var.get()}")
@@ -702,15 +731,16 @@ class FileTreeGeneratorApp:
                 # If showing all models is enabled, log that
                 if self.show_all_models_var.get():
                     self.log("Including estimates for all models in output")
-
-
+                    
+            # Add this confirmation message before starting generation
+            if enable_token_estimation:
+                self.log("Token estimation is enabled - both file contents and token statistics will be included in the output")
             # Create a temporary text output file
             temp_output = output_file
             if export_format != 'txt':
                 temp_output = output_file + '.temp.txt'
         
-
-            # Generate file tree - TEMPORARY FIX: Don't pass referenced_files since current function doesn't support it
+            # Generate file tree
             result = create_file_tree(
                 root_dir, 
                 extensions, 
@@ -723,12 +753,11 @@ class FileTreeGeneratorApp:
                 ultra_compact_view=self.ultra_compact_view_var.get(),
                 remove_comments=self.remove_comments_var.get(),
                 exclude_empty_lines=self.exclude_empty_lines_var.get(),
-                #hide_binary_files=self.hide_binary_files_var.get(),
                 smart_truncate=self.smart_truncate_var.get(), 
                 hide_repeated_sections=self.hide_repeated_sections_var.get(),
                 priority_folders=priority_folders,
                 priority_files=priority_files,
-                referenced_files=referenced_files,
+                referenced_files=referenced_files,  # This is now properly passed to create_file_tree
                 enable_token_estimation=enable_token_estimation,
                 token_model=token_model,
                 token_method=token_method
@@ -793,30 +822,46 @@ class FileTreeGeneratorApp:
         """Enable or disable reference tracking options based on checkbox"""
         state = "normal" if self.reference_tracking_var.get() else "disabled"
     
-        # Instead of using grid_slaves, directly reference the widgets we need to enable/disable
-        try:
-            # Store references to widgets that need to be enabled/disabled
-            if hasattr(self, 'depth_spinbox'):  
+        # Use direct widget references for more reliability
+        if hasattr(self, 'depth_spinbox'):
+            # If unlimited depth is checked, keep spinbox disabled
+            if self.unlimited_depth_var.get() and self.reference_tracking_var.get():
+                self.depth_spinbox.configure(state="disabled")
+            else:
                 self.depth_spinbox.configure(state=state)
-            if hasattr(self, 'unlimited_depth_check'):
-                self.unlimited_depth_check.configure(state=state)
-            if hasattr(self, 'ignore_xaml_check'):
-                self.ignore_xaml_check.configure(state=state)
-            if hasattr(self, 'select_files_button'):
-                self.select_files_button.configure(state=state)
-        except Exception as e:
-            print(f"Error in toggle_reference_options: {str(e)}")
+            
+        if hasattr(self, 'unlimited_depth_check'):
+            self.unlimited_depth_check.configure(state=state)
+        
+        if hasattr(self, 'ignore_xaml_check'):
+            self.ignore_xaml_check.configure(state=state)
+        
+        if hasattr(self, 'select_files_button'):
+            self.select_files_button.configure(state=state)
+        
+        # Update selected files label state
+        for child in self.root.winfo_children():
+            if isinstance(child, ttk.LabelFrame) and "Reference Tracking" in child["text"]:
+                for grandchild in child.winfo_children():
+                    if isinstance(grandchild, ttk.Label) and hasattr(grandchild, 'cget'):
+                        try:
+                            if grandchild.cget('textvariable') == str(self.selected_files_var):
+                                grandchild.configure(state=state)
+                        except:
+                            pass
 
     def toggle_depth_spinner(self):
         """Enable or disable depth spinner based on unlimited depth checkbox"""
-        try:
-            if hasattr(self, 'depth_spinbox'):
-                if self.unlimited_depth_var.get() and self.reference_tracking_var.get():
-                    self.depth_spinbox.configure(state="disabled")
-                elif self.reference_tracking_var.get():
-                    self.depth_spinbox.configure(state="normal")
-        except Exception as e:
-            print(f"Error in toggle_depth_spinner: {str(e)}")
+        if not hasattr(self, 'depth_spinbox'):
+            return
+        
+        if self.reference_tracking_var.get():
+            if self.unlimited_depth_var.get():
+                self.depth_spinbox.configure(state="disabled")
+            else:
+                self.depth_spinbox.configure(state="normal")
+        else:
+            self.depth_spinbox.configure(state="disabled")
     
     def toggle_xaml_options(self):
         """Update status message when XAML ignore option changes"""
@@ -835,6 +880,11 @@ class FileTreeGeneratorApp:
             messagebox.showerror("Error", "Please select a valid root directory first")
             return
     
+        # Ensure extensions are defined before opening the selector
+        extensions_str = self.extensions_var.get().strip()
+        if not extensions_str:
+            messagebox.showwarning("Warning", "No file extensions specified. All files may be shown in the selector.")
+    
         # Open file selector dialog with XAML support
         file_selector = FileSelector(
             self.root, 
@@ -845,7 +895,14 @@ class FileTreeGeneratorApp:
         self.root.wait_window(file_selector)
     
         # Get selected files
-        self.selected_files = file_selector.get_selected_files()
+        selected_files = file_selector.get_selected_files()
+    
+        # Make sure we got a valid list (not None)
+        if selected_files is None:
+            selected_files = []
+    
+        # Update the selected files list
+        self.selected_files = selected_files
     
         # Update display
         if not self.selected_files:
@@ -854,16 +911,17 @@ class FileTreeGeneratorApp:
             self.selected_files_var.set("1 file selected")
         else:
             self.selected_files_var.set(f"{len(self.selected_files)} files selected")
-        
+    
         # Count selected file types for better user feedback
         xaml_count = sum(1 for file in self.selected_files 
                         if file.endswith(('.xaml', '.axaml')))
         cs_count = sum(1 for file in self.selected_files 
                       if file.endswith('.cs'))
+        other_count = len(self.selected_files) - xaml_count - cs_count
     
-        if xaml_count > 0 or cs_count > 0:
-            self.log(f"Selected {cs_count} C# files and {xaml_count} XAML/AXAML files")
-        
+        if self.selected_files:
+            self.log(f"Selected {cs_count} C# files, {xaml_count} XAML/AXAML files, and {other_count} other files")
+    
         # If XAML files are selected but ignore_xaml is enabled, show info message
         if xaml_count > 0 and self.ignore_xaml_var.get():
             self.log("Note: Selected XAML/AXAML files will be included even though 'Ignore XAML/AXAML Files' is enabled")

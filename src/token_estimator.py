@@ -14,29 +14,54 @@ from typing import Dict, Tuple, List, Any, Optional
 # These are estimations and can be adjusted as needed
 MODEL_FACTORS = {
     "claude-3.5-sonnet": {
-        "char_factor": 0.25,         # Characters per token (approximate)
-        "word_factor": 1.3,          # Tokens per word (approximate)
+        "char_factor": 0.28,         # ~3.6 characters per token
+        "word_factor": 1.4,          # Tokens per word (approximate)
         "name": "Claude 3.5 Sonnet"
     },
     "claude-3-opus": {
-        "char_factor": 0.25,         # Characters per token (approximate)
-        "word_factor": 1.3,          # Tokens per word (approximate)
+        "char_factor": 0.25,         # ~4.0 characters per token
+        "word_factor": 1.35,         # Tokens per word (approximate)
         "name": "Claude 3 Opus"
     },
     "claude-3-haiku": {
-        "char_factor": 0.25,         # Characters per token (approximate)
-        "word_factor": 1.3,          # Tokens per word (approximate)
+        "char_factor": 0.28,         # ~3.6 characters per token
+        "word_factor": 1.4,          # Tokens per word (approximate)
         "name": "Claude 3 Haiku"
     },
+    "claude-3.7-sonnet": {           # Adding Claude 3.7 model
+        "char_factor": 0.28,         # ~3.6 characters per token
+        "word_factor": 1.4,          # Tokens per word (approximate)
+        "name": "Claude 3.7 Sonnet"
+    },
     "gpt-4": {
-        "char_factor": 0.25,         # Characters per token (approximate)
+        "char_factor": 0.25,         # ~4.0 characters per token
         "word_factor": 1.3,          # Tokens per word (approximate)
         "name": "GPT-4"
     },
+    "gpt-4-turbo": {                 # Adding GPT-4 Turbo
+        "char_factor": 0.25,         # ~4.0 characters per token
+        "word_factor": 1.3,          # Tokens per word (approximate)
+        "name": "GPT-4 Turbo"
+    },
     "gpt-3.5-turbo": {
-        "char_factor": 0.25,         # Characters per token (approximate)
+        "char_factor": 0.25,         # ~4.0 characters per token
         "word_factor": 1.3,          # Tokens per word (approximate)
         "name": "GPT-3.5 Turbo"
+    },
+    "llama-2": {                     # Adding Llama 2
+        "char_factor": 0.26,         # ~3.8 characters per token
+        "word_factor": 1.3,          # Tokens per word (approximate)
+        "name": "Llama 2"
+    },
+    "llama-3": {                     # Adding Llama 3
+        "char_factor": 0.26,         # ~3.8 characters per token
+        "word_factor": 1.3,          # Tokens per word (approximate)
+        "name": "Llama 3"
+    },
+    "mistral": {                     # Adding Mistral
+        "char_factor": 0.25,         # ~4.0 characters per token
+        "word_factor": 1.25,         # Tokens per word (approximate)
+        "name": "Mistral"
     },
     "custom": {
         "char_factor": 0.25,         # Default, user configurable
@@ -51,7 +76,7 @@ def get_available_models():
 
 def estimate_tokens_for_text(text, model="claude-3.5-sonnet", method="char"):
     """
-    Estimate token count for a given text.
+    Estimate token count for a given text with improved handling.
     
     Args:
         text: The text to estimate tokens for
@@ -69,18 +94,37 @@ def estimate_tokens_for_text(text, model="claude-3.5-sonnet", method="char"):
     
     if method == "char":
         # Character-based estimation
-        return int(len(text) * factors["char_factor"])
+        return max(1, int(len(text) * factors["char_factor"]))
     elif method == "word":
-        # Word-based estimation
+        # Word-based estimation - handle very large texts efficiently
+        if len(text) > 1024 * 1024:  # For texts > 1MB
+            # Sample-based estimation to improve performance
+            sample_size = 100000  # 100KB sample
+            sample_count = len(text) // sample_size
+            if sample_count > 1:
+                # Take samples from the beginning, middle, and end
+                samples = [
+                    text[:sample_size],
+                    text[len(text)//2-sample_size//2:len(text)//2+sample_size//2],
+                    text[-sample_size:]
+                ]
+                # Count words in samples and extrapolate
+                word_count = 0
+                for sample in samples:
+                    word_count += len(re.findall(r'\S+', sample))
+                word_count = word_count / (3 * sample_size) * len(text)
+                return max(1, int(word_count * factors["word_factor"]))
+            
+        # For smaller texts, count all words
         word_count = len(re.findall(r'\S+', text))
-        return int(word_count * factors["word_factor"])
+        return max(1, int(word_count * factors["word_factor"]))
     else:
         # Default to character-based estimation
-        return int(len(text) * factors["char_factor"])
+        return max(1, int(len(text) * factors["char_factor"]))
 
 def estimate_tokens_for_file(file_path, model="claude-3.5-sonnet", method="char"):
     """
-    Estimate token count for a file.
+    Estimate token count for a file with improved error handling.
     
     Args:
         file_path: Path to the file
@@ -91,9 +135,34 @@ def estimate_tokens_for_file(file_path, model="claude-3.5-sonnet", method="char"
         (success, token_count, error_message)
     """
     try:
-        with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
-            content = f.read()
+        # Check if the file exists and is a regular file
+        if not os.path.isfile(file_path):
+            return False, 0, "Not a regular file"
+            
+        # Try to open the file with UTF-8 encoding
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except UnicodeDecodeError:
+            # If UTF-8 fails, try with system default encoding
+            try:
+                with open(file_path, 'r') as f:
+                    content = f.read()
+            except UnicodeDecodeError:
+                # If that fails too, try binary mode with replace option
+                try:
+                    with open(file_path, 'rb') as f:
+                        content = f.read().decode('utf-8', 'replace')
+                except Exception as e:
+                    return False, 0, f"Error reading file: {str(e)}"
+                    
+        # For very large files, only process the first 1MB to avoid memory issues
+        if len(content) > 1024 * 1024:
+            content = content[:1024 * 1024] + f"\n... (truncated, file too large)"
+            
+        # Estimate tokens
         return True, estimate_tokens_for_text(content, model, method), None
+                
     except Exception as e:
         return False, 0, str(e)
 
@@ -128,9 +197,17 @@ def estimate_tokens_for_directory(directory, extensions=None, blacklist_folders=
     tokens_by_extension = {}
     largest_files = []  # Will hold (file_path, token_count) tuples
     
+    # Validate model exists or default to claude-3.5-sonnet
+    if model not in MODEL_FACTORS:
+        model = "claude-3.5-sonnet"
+    
+    # Make sure method is valid
+    if method not in ["char", "word"]:
+        method = "char"
+    
     # Walk through directory
     for root, dirs, files in os.walk(directory):
-        # Skip blacklisted folders
+        # Skip blacklisted folders - need to modify dirs in place
         dirs[:] = [d for d in dirs if d not in blacklist_folders]
         
         for file in files:
@@ -151,8 +228,21 @@ def estimate_tokens_for_directory(directory, extensions=None, blacklist_folders=
                 
             file_path = os.path.join(root, file)
             
+            # Skip directories masquerading as files (symbolic links)
+            if not os.path.isfile(file_path):
+                continue
+                
+            # Skip files that are too large (>10MB) for performance
+            try:
+                if os.path.getsize(file_path) > 10 * 1024 * 1024:
+                    skipped_files += 1
+                    continue
+            except (OSError, IOError):
+                skipped_files += 1
+                continue
+                
             # Estimate tokens for this file
-            success, token_count, _ = estimate_tokens_for_file(file_path, model, method)
+            success, token_count, error = estimate_tokens_for_file(file_path, model, method)
             if success:
                 total_tokens += token_count
                 processed_files += 1
