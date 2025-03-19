@@ -111,11 +111,23 @@ class SynchronizedTextEditor(ttk.Frame):
         self.text.tag_configure("search_highlight", background="#ffff00", foreground="#000000")
     
     def initialize_tags(self):
-        """Initialize tags for syntax highlighting"""
-        # Common token types
+        """Initialize tags for syntax highlighting with proper font handling"""
+        # Create font objects for regular and italic text
+        import tkinter.font as tkFont
+    
+        # Get the current font properties
+        current_font = tkFont.Font(font=self.text['font'])
+        font_family = current_font.actual('family')
+        font_size = current_font.actual('size')
+    
+        # Create italic font
+        italic_font = tkFont.Font(family=font_family, size=font_size, slant="italic")
+    
+        # Configure tags with appropriate fonts
+        # Common token types - using fonts for italic instead of direct italic property
         self.text.tag_configure("keyword", foreground="#c678dd")
         self.text.tag_configure("string", foreground="#98c379")
-        self.text.tag_configure("comment", foreground="#5c6370", italic=True)
+        self.text.tag_configure("comment", foreground="#5c6370", font=italic_font)  # Use italic font
         self.text.tag_configure("number", foreground="#d19a66")
         self.text.tag_configure("operator", foreground="#56b6c2")
         self.text.tag_configure("class_name", foreground="#e5c07b")
@@ -123,7 +135,7 @@ class SynchronizedTextEditor(ttk.Frame):
         self.text.tag_configure("namespace", foreground="#c678dd")
         self.text.tag_configure("type", foreground="#e5c07b")
         self.text.tag_configure("attribute", foreground="#d19a66")
-        self.text.tag_configure("docstring", foreground="#98c379", italic=True)
+        self.text.tag_configure("docstring", foreground="#98c379", font=italic_font)  # Use italic font
     
     def on_text_modified(self, event=None):
         """Handle text modifications and update line numbers"""

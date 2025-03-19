@@ -31,14 +31,17 @@ class FileTreeGeneratorApp:
         self.root = root
         self.root.title("File Tree Generator")
         self.root.geometry("800x1000")
-        
+    
         # Load saved configuration
         self.config = load_config()
-        
-        # Create menu bar
+    
+        # Initialize the visualizer integration first
+        self.initialize_visualizer()
+    
+        # Then create the menu (now that visualizer methods exist)
         self.create_menu()
         
-        # Create main frame
+            # Create main frame
         main_frame = ttk.Frame(root, padding="10")
         main_frame.pack(fill=tk.BOTH, expand=True)
         
@@ -325,7 +328,17 @@ class FileTreeGeneratorApp:
         check_updates_at_startup(self.root)
         
         # Initialize code visualizer integration
-        add_code_visualizer_to_app(FileTreeGeneratorApp)
+        #add_code_visualizer_to_app(FileTreeGeneratorApp)
+        self.initialize_visualizer()
+
+    def initialize_visualizer(self):
+        """Initialize the code visualizer integration"""
+        self.visualizer = CodeVisualizerIntegration(self)
+    
+        # Add reference to open_code_visualizer method for compatibility
+        self.open_code_visualizer = self.visualizer.open_code_visualizer
+        self.show_reference_graph = self.visualizer.show_reference_graph
+        self.visualize_all_references = self.visualizer.analyze_all_references
 
     def visualize_references(self):
         """Open visualizer for selected reference files"""
@@ -1004,13 +1017,240 @@ class FileTreeGeneratorApp:
 
     # Visualization methods - will be properly implemented by the add_code_visualizer_to_app function
     # These are stubs that will be replaced when the code_visualizer integration happens
+    #def open_code_visualizer(self, file_path=None):
+    #    """Placeholder for code visualizer method - will be replaced during integration"""
+    #    pass
+   # 
+    #def show_reference_graph(self):
+    #    """Placeholder for reference graph visualization - will be replaced during integration"""
+    #    pass
+
+
+
+class CodeVisualizerIntegration:
+    """
+    Direct implementation of code visualization functionality
+    that doesn't rely on dynamic patching or the demo application.
+    """
+    
+    def __init__(self, app_instance):
+        """
+        Initialize with a reference to the main application
+        
+        Args:
+            app_instance: Instance of FileTreeGeneratorApp
+        """
+        self.app = app_instance
+        self.reference_tracker = None
+        self.selected_files = []
+        
+        # Add menu options
+        self.add_visualizer_menu_options()
+    
+    def add_visualizer_menu_options(self):
+        """Add code visualizer options to the menu"""
+        menubar = self.app.root.config("menu")[-1]  # Get menu bar
+        
+        # Look for Visualize menu, or create it if it doesn't exist
+        visualize_menu = None
+        for i in range(menubar.index("end") + 1):
+            if menubar.entrycget(i, "label") == "Visualize":
+                visualize_menu = menubar.nametowidget(menubar.entrycget(i, "menu"))
+                # Clear existing items
+                visualize_menu.delete(0, "end")
+                break
+        
+        if not visualize_menu:
+            # Create Visualize menu
+            visualize_menu = tk.Menu(menubar, tearoff=0)
+            menubar.add_cascade(label="Visualize", menu=visualize_menu)
+        
+        # Add options to visualize menu
+        visualize_menu.add_command(label="Open Code Visualizer...", 
+                                command=self.open_file_dialog)
+        visualize_menu.add_command(label="Visualize Selected File", 
+                                command=self.visualize_selected)
+        visualize_menu.add_separator()
+        visualize_menu.add_command(label="Reference Graph...", 
+                                command=self.show_reference_graph)
+        visualize_menu.add_command(label="Analyze All References",
+                                command=self.analyze_all_references)
+    
+    def open_file_dialog(self):
+        """Open dialog to select a file for visualization"""
+        file_path = filedialog.askopenfilename(
+            title="Select File to Visualize",
+            filetypes=[("C# Files", "*.cs"), ("XAML Files", "*.xaml;*.axaml"), ("All Files", "*.*")]
+        )
+        if file_path:
+            self.open_code_visualizer(file_path)
+    
+    def visualize_selected(self):
+        """Visualize the currently selected file (if any)"""
+        if hasattr(self.app, 'selected_files') and self.app.selected_files:
+            self.open_code_visualizer(self.app.selected_files[0])
+        else:
+            messagebox.showinfo("Information", "No file selected. Please select a file first.")
+    
     def open_code_visualizer(self, file_path=None):
-        """Placeholder for code visualizer method - will be replaced during integration"""
-        pass
+        """Open the code relationship visualizer for a file"""
+        if not file_path:
+            # Use the currently selected file if none is provided
+            if hasattr(self.app, 'selected_files') and self.app.selected_files:
+                file_path = self.app.selected_files[0]
+            else:
+                file_path = self.app.root_dir_var.get()
+                if not os.path.isfile(file_path):
+                    messagebox.showinfo("Information", "Please select a file to visualize.")
+                    return
+        
+        # Ensure we have a reference tracker
+        if not self.reference_tracker:
+            self.app.log("Initializing reference tracker...")
+            root_dir = os.path.dirname(file_path) if os.path.isfile(file_path) else file_path
+            
+            # Import here to avoid circular imports
+            from reference_tracking import ReferenceTrackingManager
+            self.reference_tracker = ReferenceTrackingManager(root_dir, self.app.log)
+            self.reference_tracker.parse_directory()
+        
+        # Determine which visualizer to open based on file extension
+        ext = os.path.splitext(file_path)[1].lower()
+        
+        # Import visualizer classes directly (don't rely on integration function)
+        from code_visualizer import CodeRelationshipVisualizer, CSharpCodeViewer
+        
+        try:
+            if ext == '.cs' or ext in ['.xaml', '.axaml']:
+                # Open specialized C# viewer for C# or XAML files
+                CSharpCodeViewer(self.app.root, self.reference_tracker, file_path)
+            else:
+                # Open generic code relationship visualizer for other files
+                CodeRelationshipVisualizer(self.app.root, self.reference_tracker, file_path)
+            
+            self.app.log(f"Opened visualizer for {os.path.basename(file_path)}")
+        except Exception as e:
+            self.app.log(f"Error opening visualizer: {str(e)}")
+            messagebox.showerror("Error", f"Could not open visualizer: {str(e)}")
     
     def show_reference_graph(self):
-        """Placeholder for reference graph visualization - will be replaced during integration"""
-        pass
+        """Show a graph visualization of file references"""
+        # Check if we have a reference tracker
+        if not self.reference_tracker:
+            if hasattr(self.app, 'root_dir_var'):
+                root_dir = self.app.root_dir_var.get()
+                if not root_dir:
+                    messagebox.showinfo("Information", "Please select a root directory first.")
+                    return
+                
+                # Create reference tracker
+                from reference_tracking import ReferenceTrackingManager
+                self.app.log("Analyzing code for reference graph...")
+                self.reference_tracker = ReferenceTrackingManager(root_dir, self.app.log)
+                self.reference_tracker.parse_directory()
+            else:
+                messagebox.showinfo("Information", "Reference tracking not initialized.")
+                return
+        
+        # Get all files with references
+        if hasattr(self.app, 'selected_files') and self.app.selected_files:
+            # Use selected files as starting points
+            files = self.app.selected_files
+        else:
+            # Use all parsed files
+            messagebox.showinfo("Information", "Please select files for the reference graph or use 'Analyze All References'.")
+            return
+        
+        # Show input dialog for reference depth
+        from tkinter import simpledialog
+        depth = simpledialog.askinteger("Reference Depth", 
+                                      "Enter maximum reference depth (1-5):",
+                                      minvalue=1, maxvalue=5, initialvalue=2)
+        if not depth:
+            return
+        
+        # Find related files
+        self.app.log(f"Finding related files with depth {depth}...")
+        related_files = self.reference_tracker.find_related_files(files, depth)
+        
+        # Show simplified reference graph information
+        info_text = f"Found {len(related_files)} related files across {depth} levels of references.\n\n"
+        
+        # Add file type counts
+        cs_count = sum(1 for f in related_files if f.endswith('.cs'))
+        xaml_count = sum(1 for f in related_files if f.endswith(('.xaml', '.axaml')))
+        other_count = len(related_files) - cs_count - xaml_count
+        
+        info_text += f"File Types:\n"
+        info_text += f"- C# Files: {cs_count}\n"
+        info_text += f"- XAML/AXAML Files: {xaml_count}\n"
+        info_text += f"- Other Files: {other_count}\n\n"
+        
+        # Add reference summary if available
+        if hasattr(self.reference_tracker, 'generate_reference_summary'):
+            summary = self.reference_tracker.generate_reference_summary(related_files)
+            self.app.log(summary)
+            
+            # Extract key information from the summary
+            for line in summary.split('\n'):
+                if "Most Referenced Files:" in line:
+                    info_text += "Top Referenced Files:\n"
+                elif line.strip().startswith("- ") and "referenced by" in line:
+                    info_text += line + "\n"
+        
+        # Show the information in a dialog
+        self.show_reference_info_dialog(info_text)
+    
+    def show_reference_info_dialog(self, info_text):
+        """Show a dialog with reference information"""
+        # Create a top-level dialog
+        dialog = tk.Toplevel(self.app.root)
+        dialog.title("Reference Graph Information")
+        dialog.geometry("600x400")
+        dialog.transient(self.app.root)
+        dialog.grab_set()
+        
+        # Add a text widget with scrollbar
+        frame = ttk.Frame(dialog, padding="10")
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        scrollbar = ttk.Scrollbar(frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        text = tk.Text(frame, wrap=tk.WORD, yscrollcommand=scrollbar.set)
+        text.pack(fill=tk.BOTH, expand=True)
+        scrollbar.config(command=text.yview)
+        
+        # Insert the information
+        text.insert(tk.END, info_text)
+        text.config(state=tk.DISABLED)
+        
+        # Add a close button
+        close_button = ttk.Button(dialog, text="Close", command=dialog.destroy)
+        close_button.pack(pady=10)
+    
+    def analyze_all_references(self):
+        """Analyze all references in the project"""
+        if not hasattr(self.app, 'root_dir_var'):
+            messagebox.showinfo("Information", "Reference tracking not available.")
+            return
+            
+        root_dir = self.app.root_dir_var.get()
+        if not root_dir:
+            messagebox.showinfo("Information", "Please select a root directory first.")
+            return
+        
+        # Create reference tracker
+        from reference_tracking import ReferenceTrackingManager
+        self.app.log("Analyzing all references in the project...")
+        self.reference_tracker = ReferenceTrackingManager(root_dir, self.app.log)
+        files_parsed = self.reference_tracker.parse_directory()
+        
+        # Show statistics
+        messagebox.showinfo("Reference Analysis", 
+                          f"Analyzed {files_parsed} files.\n\n"
+                          "Select specific files to visualize their references, or use the\n"
+                          "'Reference Graph' option for a detailed view.")
 
 if __name__ == "__main__":
     root = tk.Tk()
