@@ -31,30 +31,27 @@ class FileTreeGeneratorApp:
         self.root = root
         self.root.title("File Tree Generator")
         self.root.geometry("800x1000")
-    
+
         # Load saved configuration
         self.config = load_config()
-    
-        # Initialize the visualizer integration first
-        self.initialize_visualizer()
-    
-        # Then create the menu (now that visualizer methods exist)
+
+        # Create menu first (before visualizer integration)
         self.create_menu()
-        
-            # Create main frame
+    
+        # Create main frame
         main_frame = ttk.Frame(root, padding="10")
         main_frame.pack(fill=tk.BOTH, expand=True)
-        
+    
         # Create input frame for directory and output file
         input_frame = ttk.LabelFrame(main_frame, text="Input/Output", padding="10")
         input_frame.pack(fill=tk.X, pady=5)
-        
+    
         # Root directory selection
         ttk.Label(input_frame, text="Root Directory:").grid(row=0, column=0, sticky=tk.W, pady=5)
         self.root_dir_var = tk.StringVar(value=self.config.get('root_dir', ''))
         ttk.Entry(input_frame, textvariable=self.root_dir_var, width=50).grid(row=0, column=1, sticky=tk.W)
         ttk.Button(input_frame, text="Browse...", command=self.browse_root_dir).grid(row=0, column=2, padx=5)
-        
+    
         # Output file selection
         ttk.Label(input_frame, text="Output File:").grid(row=1, column=0, sticky=tk.W, pady=5)
         self.output_file_var = tk.StringVar(value=self.config.get('output_file', ''))
@@ -324,11 +321,11 @@ class FileTreeGeneratorApp:
         self.log_text.pack(fill=tk.BOTH, expand=True)
         self.log_text.config(state=tk.DISABLED)
         
+        
         # Check for updates at startup (non-blocking)
         check_updates_at_startup(self.root)
-        
-        # Initialize code visualizer integration
-        #add_code_visualizer_to_app(FileTreeGeneratorApp)
+    
+        # Initialize code visualizer integration at the end
         self.initialize_visualizer()
 
     def initialize_visualizer(self):
@@ -836,7 +833,8 @@ class FileTreeGeneratorApp:
         """Create application menu bar"""
         menubar = Menu(self.root)
         self.root.config(menu=menubar)
-        
+        self.menubar = menubar  # Store reference for later use
+    
         # File menu
         file_menu = Menu(menubar, tearoff=0)
         menubar.add_cascade(label="File", menu=file_menu)
@@ -844,23 +842,21 @@ class FileTreeGeneratorApp:
         file_menu.add_command(label="Save Output As...", command=self.browse_output_file)
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.root.quit)
-        
+    
         # Settings menu
         settings_menu = Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Settings", menu=settings_menu)
         settings_menu.add_command(label="Save as Default", command=self.save_settings)
-        
-        # Visualize menu
-        visualize_menu = Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Visualize", menu=visualize_menu)
-        visualize_menu.add_command(label="Code Relationships...", command=self.open_code_visualizer)
-        visualize_menu.add_command(label="References Graph...", command=self.show_reference_graph)
-        
+    
+        # Create Visualize menu (will be populated by visualizer integration)
+        self.visualize_menu = Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Visualize", menu=self.visualize_menu)
+    
         # Help menu
         help_menu = Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Help", menu=help_menu)
         help_menu.add_command(label="About", command=self.show_about)
-        
+    
         # Add update check to Help menu
         add_update_check_to_menu(help_menu)
 
@@ -1049,32 +1045,27 @@ class CodeVisualizerIntegration:
     
     def add_visualizer_menu_options(self):
         """Add code visualizer options to the menu"""
-        menubar = self.app.root.config("menu")[-1]  # Get menu bar
-        
-        # Look for Visualize menu, or create it if it doesn't exist
-        visualize_menu = None
-        for i in range(menubar.index("end") + 1):
-            if menubar.entrycget(i, "label") == "Visualize":
-                visualize_menu = menubar.nametowidget(menubar.entrycget(i, "menu"))
-                # Clear existing items
-                visualize_menu.delete(0, "end")
-                break
-        
-        if not visualize_menu:
-            # Create Visualize menu
-            visualize_menu = tk.Menu(menubar, tearoff=0)
-            menubar.add_cascade(label="Visualize", menu=visualize_menu)
-        
-        # Add options to visualize menu
-        visualize_menu.add_command(label="Open Code Visualizer...", 
-                                command=self.open_file_dialog)
-        visualize_menu.add_command(label="Visualize Selected File", 
-                                command=self.visualize_selected)
-        visualize_menu.add_separator()
-        visualize_menu.add_command(label="Reference Graph...", 
-                                command=self.show_reference_graph)
-        visualize_menu.add_command(label="Analyze All References",
-                                command=self.analyze_all_references)
+        # Use the existing visualize menu that was created in the main app
+        if hasattr(self.app, 'visualize_menu'):
+            visualize_menu = self.app.visualize_menu
+            
+            # Clear any existing items
+            visualize_menu.delete(0, "end")
+            
+            # Add options to visualize menu
+            visualize_menu.add_command(label="Open Code Visualizer...", 
+                                      command=self.open_file_dialog)
+            visualize_menu.add_command(label="Visualize Selected File", 
+                                      command=self.visualize_selected)
+            visualize_menu.add_separator()
+            visualize_menu.add_command(label="Reference Graph...", 
+                                      command=self.show_reference_graph)
+            visualize_menu.add_command(label="Analyze All References",
+                                      command=self.analyze_all_references)
+        else:
+            # Log a warning if visualize_menu doesn't exist
+            if hasattr(self.app, 'log'):
+                self.app.log("Warning: Visualize menu not found. Some features may be unavailable.")
     
     def open_file_dialog(self):
         """Open dialog to select a file for visualization"""
