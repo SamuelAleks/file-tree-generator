@@ -9,7 +9,10 @@ from file_selector import FileSelector
 from reference_tracking import ReferenceTrackingManager
 from token_estimator import get_available_models, get_model_factors
 
-# Import your existing function and config utilities
+# Import code visualizer integration
+from code_visualizer import add_code_visualizer_to_app
+
+# Import tree generation functions
 from file_tree_generator import (
     create_file_tree, 
     export_as_html, 
@@ -21,6 +24,9 @@ import token_estimator
 from update_checker import check_updates_at_startup, add_update_check_to_menu, CURRENT_VERSION, GITHUB_REPO
 
 class FileTreeGeneratorApp:
+    # Reference tracker for code visualization
+    reference_tracker = None
+    
     def __init__(self, root):
         self.root = root
         self.root.title("File Tree Generator")
@@ -109,7 +115,7 @@ class FileTreeGeneratorApp:
                                   textvariable=self.reference_depth_var, width=5)
         self.depth_spinbox.grid(row=0, column=2, sticky=tk.W)
 
-       # Unlimited depth checkbox
+        # Unlimited depth checkbox
         self.unlimited_depth_var = tk.BooleanVar(value=self.config.get('unlimited_depth', False))
         self.unlimited_depth_check = ttk.Checkbutton(reference_frame, text="Unlimited Depth", 
                                               variable=self.unlimited_depth_var,
@@ -135,6 +141,13 @@ class FileTreeGeneratorApp:
         self.select_files_button = ttk.Button(reference_frame, text="Select Files...", 
                                            command=self.select_reference_files)
         self.select_files_button.grid(row=1, column=3, sticky=tk.W, padx=5)
+        
+        # Visualize References button
+        self.visualize_button = ttk.Button(reference_frame, text="Visualize References", 
+                                           command=self.visualize_references)
+        self.visualize_button.grid(row=1, column=4, sticky=tk.W, padx=5)
+        self.create_tooltip(self.visualize_button, 
+                          "Open the Code Relationship Visualizer for selected files")
 
         # Initialize reference tracking state
         self.selected_files = []
@@ -307,8 +320,21 @@ class FileTreeGeneratorApp:
         self.log_text = ScrolledText(log_frame, wrap=tk.WORD, height=10)
         self.log_text.pack(fill=tk.BOTH, expand=True)
         self.log_text.config(state=tk.DISABLED)
+        
         # Check for updates at startup (non-blocking)
         check_updates_at_startup(self.root)
+        
+        # Initialize code visualizer integration
+        add_code_visualizer_to_app(FileTreeGeneratorApp)
+
+    def visualize_references(self):
+        """Open visualizer for selected reference files"""
+        if not self.selected_files:
+            messagebox.showinfo("Information", "Please select files for reference tracking first.")
+            return
+            
+        # Use the first selected file as the starting point
+        self.open_code_visualizer(self.selected_files[0])
 
     def toggle_token_options(self):
         """Enable or disable token estimation options based on checkbox"""
@@ -374,8 +400,6 @@ class FileTreeGeneratorApp:
     def toggle_show_all_models(self):
         """Handle show all models toggle"""
         self.update_token_preview()
-
-    # Fixed update_token_preview method - Focus on the threading part
 
     def update_token_preview(self):
         """Update token count preview based on selected files or directory"""
@@ -678,6 +702,9 @@ class FileTreeGeneratorApp:
                 self.log("Analyzing C# and XAML references...")
                 reference_manager = ReferenceTrackingManager(root_dir, log_callback=self.log)
                 reference_manager.parse_directory()
+                
+                # Store this reference manager for visualizer use
+                self.reference_tracker = reference_manager
             
                 # Find related files
                 referenced_files = reference_manager.find_related_files(
@@ -810,6 +837,12 @@ class FileTreeGeneratorApp:
         menubar.add_cascade(label="Settings", menu=settings_menu)
         settings_menu.add_command(label="Save as Default", command=self.save_settings)
         
+        # Visualize menu
+        visualize_menu = Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Visualize", menu=visualize_menu)
+        visualize_menu.add_command(label="Code Relationships...", command=self.open_code_visualizer)
+        visualize_menu.add_command(label="References Graph...", command=self.show_reference_graph)
+        
         # Help menu
         help_menu = Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Help", menu=help_menu)
@@ -838,6 +871,9 @@ class FileTreeGeneratorApp:
         
         if hasattr(self, 'select_files_button'):
             self.select_files_button.configure(state=state)
+        
+        if hasattr(self, 'visualize_button'):
+            self.visualize_button.configure(state=state)
         
         # Update selected files label state
         for child in self.root.winfo_children():
@@ -931,7 +967,6 @@ class FileTreeGeneratorApp:
                 "The 'Ignore XAML/AXAML Files' option only affects files discovered during reference tracking, not files that you explicitly select."
             )
 
-        
     def show_about(self):
         """Show about dialog"""
         about_window = tk.Toplevel(self.root)
@@ -966,6 +1001,16 @@ class FileTreeGeneratorApp:
         x = (about_window.winfo_screenwidth() // 2) - (width // 2)
         y = (about_window.winfo_screenheight() // 2) - (height // 2)
         about_window.geometry(f"{width}x{height}+{x}+{y}")
+
+    # Visualization methods - will be properly implemented by the add_code_visualizer_to_app function
+    # These are stubs that will be replaced when the code_visualizer integration happens
+    def open_code_visualizer(self, file_path=None):
+        """Placeholder for code visualizer method - will be replaced during integration"""
+        pass
+    
+    def show_reference_graph(self):
+        """Placeholder for reference graph visualization - will be replaced during integration"""
+        pass
 
 if __name__ == "__main__":
     root = tk.Tk()

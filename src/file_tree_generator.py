@@ -5,6 +5,11 @@ import sys
 import re
 import token_estimator
 
+import tkinter as tk
+from tkinter import ttk, messagebox
+
+from code_visualizer import CodeRelationshipVisualizer, CodeSnippetVisualizer, add_code_visualizer_to_app
+from reference_tracking import ReferenceTrackingManager
 
 def parse_args():
     """Parse command line arguments for file tree generator"""

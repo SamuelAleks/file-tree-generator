@@ -1,6 +1,6 @@
 ﻿import os
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 
 class FileSelector(tk.Toplevel):
     """Dialog for selecting files from a directory tree"""
@@ -93,6 +93,48 @@ class FileSelector(tk.Toplevel):
         
         # Bind selection event
         self.tree.bind("<<TreeviewSelect>>", self.update_selection_count)
+        
+        # Add context menu
+        self.context_menu = tk.Menu(self, tearoff=0)
+        self.context_menu.add_command(label="Visualize Code Relationships", 
+                                   command=self.visualize_selected)
+        
+        # Bind right-click event
+        self.tree.bind("<Button-3>", self.show_context_menu)
+    
+    def show_context_menu(self, event):
+        """Show context menu on right-click"""
+        # Get item under cursor
+        item = self.tree.identify_row(event.y)
+        if item:
+            # Select the item
+            self.tree.selection_set(item)
+            # Show context menu
+            try:
+                self.context_menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                self.context_menu.grab_release()
+    
+    def visualize_selected(self):
+        """Visualize selected file"""
+        selected = self.tree.selection()
+        if not selected:
+            return
+            
+        # Get the file path
+        item_values = self.tree.item(selected[0], "values")
+        if len(item_values) >= 1 and item_values[1] == "file":
+            file_path = item_values[0]
+            
+            # Check if parent app has visualizer method
+            parent = self.master
+            while parent and not hasattr(parent, 'open_code_visualizer'):
+                parent = parent.master
+            
+            if parent and hasattr(parent, 'open_code_visualizer'):
+                parent.open_code_visualizer(file_path)
+            else:
+                messagebox.showinfo("Information", "Code visualizer not available in this context.")
     
     def filter_by_extension(self, extensions):
         """Filter the tree to show only files with specific extensions"""
