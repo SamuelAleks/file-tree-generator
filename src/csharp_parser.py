@@ -50,6 +50,318 @@ class CSharpReferenceTracker:
         # XAML relationship tracking
         self.xaml_to_cs_mapping = {}  # xaml_file_path -> cs_file_path
         self.cs_to_xaml_mapping = {}  # cs_file_path -> xaml_file_path
+
+    def parse_method_references(self, content, file_path):
+        """
+        Parse method calls and definitions in the content.
+    
+        This function analyzes the C# code to identify method definitions and calls,
+        building a graph of method-level references.
+    
+        Args:
+            content: The file content to parse
+            file_path: Path to the file being parsed
+        
+        Returns:
+            A dictionary mapping method names to their references
+        """
+        # Clean content for parsing
+        clean_content = self._remove_comments_and_strings(content)
+    
+        # Get namespace and classes in this file
+        namespace = self._extract_namespace(clean_content)
+        classes = self._extract_type_declarations(clean_content)
+    
+        # Track methods defined and called in this file
+        method_definitions = {}
+        method_calls = []
+    
+        # Extract method definitions
+        for match in self.patterns['method_decl'].finditer(clean_content):
+            method_name = match.group(1)
+        
+            # Skip keywords that might be incorrectly matched
+            if method_name in ['if', 'while', 'for', 'foreach', 'switch', 'using', 'try', 'catch']:
+                continue
+            
+            # Get method position
+            start_pos = match.start()
+            line_number = clean_content[:start_pos].count('\n') + 1
+        
+            # Find method body if using braces
+            if '{' in match.group():
+                # Find matching closing brace
+                brace_count = 1
+                end_pos = match.end()
+            
+                while brace_count > 0 and end_pos < len(clean_content):
+                    if clean_content[end_pos] == '{':
+                        brace_count += 1
+                    elif clean_content[end_pos] == '}':
+                        brace_count -= 1
+                    end_pos += 1
+            
+                method_body = clean_content[start_pos:end_pos]
+            else:
+                # Expression-bodied method
+                semicolon_pos = clean_content.find(';', match.end())
+                method_body = clean_content[start_pos:semicolon_pos+1]
+        
+            # Store method definition with its body
+            method_definitions[method_name] = {
+                'name': method_name,
+                'line': line_number,
+                'body': method_body,
+                'class': classes[0] if classes else None,
+                'namespace': namespace,
+                'calls': []  # Will be populated with method calls
+            }
+        
+            # Find method calls within this method
+            for call_match in self.patterns['method_call'].finditer(method_body):
+                object_name = call_match.group(1)
+                called_method = call_match.group(2)
+            
+                # Skip "this" references and common C# patterns
+                if object_name in ['this', 'base', 'var', 'if', 'for', 'while']:
+                    continue
+                
+                # Record this call
+                call_line = line_number + method_body[:call_match.start()].count('\n')
+                method_calls.append({
+                    'caller': method_name,
+                    'target_object': object_name,
+                    'target_method': called_method,
+                    'line': call_line
+                })
+            
+                # Add to the calls list for this method
+                method_definitions[method_name]['calls'].append({
+                    'object': object_name,
+                    'method': called_method,
+                    'line': call_line
+                })
+    
+        # Store method information in file_info
+        if file_path in self.file_info:
+            self.file_info[file_path]['method_definitions'] = method_definitions
+            self.file_info[file_path]['method_calls'] = method_calls
+    
+        return method_definitions
+
+    def get_method_signature(self, file_path, method_name):
+        """
+        Extract the full method signature for better visualization.
+    
+        Args:
+            file_path: Path to the file containing the method
+            method_name: Name of the method
+        
+        Returns:
+            Dictionary with method signature details or None if not found
+        """
+        if file_path not in self.file_info:
+            return None
+        
+        content = self.file_info[file_path].get('raw_content', '')
+        if not content:
+            return None
+        
+        # Advanced regex to capture full method signature with return type,
+        # parameters, and modifiers
+        pattern = r'(?:public|private|protected|internal|protected\s+internal|private\s+protected)\s+(?:(?:virtual|override|abstract|static|async|new|sealed|extern)\s+)*(?:[\w<>[\],\s]+\s+)' + \
+                  re.escape(method_name) + r'\s*\(([^)]*)\)(?:\s*(?:where\s+.*?)?(?:{|=>))'
+    
+        match = re.search(pattern, content)
+        if match:
+            # Get the complete signature
+            signature = match.group(0)
+            parameters = match.group(1).strip()
+        
+            # Extract return type and modifiers
+            parts = signature.split(method_name)[0].strip()
+        
+            # Separate visibility
+            visibility_pattern = r'^(public|private|protected|internal|protected\s+internal|private\s+protected)'
+            visibility_match = re.search(visibility_pattern, parts)
+            visibility = visibility_match.group(1) if visibility_match else ""
+        
+            # Remove visibility from parts
+            if visibility:
+                parts = parts.replace(visibility, "", 1).strip()
+            
+            # Extract modifiers
+            modifiers = []
+            for modifier in ["virtual", "override", "abstract", "static", "async", "new", "sealed", "extern"]:
+                if re.search(fr'\b{modifier}\b', parts):
+                    modifiers.append(modifier)
+                    parts = re.sub(fr'\b{modifier}\b', '', parts, 1).strip()
+                
+            # What remains should be the return type
+            return_type = parts.strip()
+        
+            return {
+                "name": method_name,
+                "signature": signature,
+                "parameters": parameters,
+                "return_type": return_type,
+                "visibility": visibility,
+                "modifiers": modifiers
+            }
+    
+        return None
+
+    def get_methods_by_class(self, file_path):
+        """
+        Group methods by their class for better organization.
+    
+        Args:
+            file_path: Path to the file to analyze
+        
+        Returns:
+            Dictionary mapping class names to lists of methods
+        """
+        if file_path not in self.file_info:
+            return {}
+        
+        # Get all classes in the file
+        classes = self.file_info[file_path].get('types', [])
+    
+        # Get all methods in the file
+        methods = self.file_info[file_path].get('methods', [])
+    
+        # Get method definitions if available
+        method_definitions = self.file_info[file_path].get('method_definitions', {})
+    
+        # Mapping of classes to methods
+        class_methods = {cls: [] for cls in classes}
+    
+        # If we have detailed method definitions, use them
+        if method_definitions:
+            for method_name, definition in method_definitions.items():
+                class_name = definition.get('class')
+                if class_name and class_name in class_methods:
+                    class_methods[class_name].append(method_name)
+                elif class_name:
+                    class_methods[class_name] = [method_name]
+                else:
+                    # Methods not belonging to a class go to an empty key
+                    if '' not in class_methods:
+                        class_methods[''] = []
+                    class_methods[''].append(method_name)
+        else:
+            # Fallback: distribute methods evenly across classes
+            # This is a simplified approach - in reality, you'd need to analyze 
+            # the code more carefully to determine which methods belong to which classes
+            if not classes:
+                classes = ['']  # No classes defined
+            
+            # Distribute methods across classes
+            for i, method in enumerate(methods):
+                class_name = classes[i % len(classes)]
+                class_methods[class_name].append(method)
+    
+        return class_methods
+
+    def trace_method_call_chain(self, file_path, method_name, max_depth=3):
+        """
+        Trace the method call chain for visualization.
+    
+        Args:
+            file_path: Path to the file containing the starting method
+            method_name: Name of the starting method
+            max_depth: Maximum recursion depth
+        
+        Returns:
+            Dictionary with the call chain information
+        """
+        if file_path not in self.file_info:
+            return {}
+        
+        # Get method definitions if available
+        method_definitions = self.file_info[file_path].get('method_definitions', {})
+    
+        if not method_definitions or method_name not in method_definitions:
+            # Try to get details directly
+            method_info = self.get_method_details(file_path, method_name)
+            if not method_info:
+                return {}
+    
+        # Start with the initial method
+        result = {
+            'method': method_name,
+            'file': file_path,
+            'calls': []
+        }
+    
+        # Don't trace further if we've reached max depth
+        if max_depth <= 0:
+            return result
+        
+        # Get calls made by this method
+        calls = []
+        if method_definitions and method_name in method_definitions:
+            calls = method_definitions[method_name].get('calls', [])
+        elif method_info:
+            # Try to extract calls from method info
+            # This would depend on the implementation of get_method_details
+            pass
+    
+        # Trace each call
+        for call in calls:
+            call_object = call.get('object', '')
+            call_method = call.get('method', '')
+        
+            # Try to find the target method in known files
+            target_file = self._find_likely_file_for_method(call_object, call_method)
+        
+            if target_file:
+                # Recursively trace this call
+                call_chain = self.trace_method_call_chain(target_file, call_method, max_depth - 1)
+                if call_chain:
+                    result['calls'].append(call_chain)
+            else:
+                # Can't trace further, just add what we know
+                result['calls'].append({
+                    'method': call_method,
+                    'object': call_object,
+                    'file': 'Unknown',
+                    'calls': []
+                })
+    
+        return result
+
+    def _find_likely_file_for_method(self, class_name, method_name):
+        """
+        Find the most likely file that contains a given method.
+    
+        Args:
+            class_name: Name of the class containing the method
+            method_name: Name of the method
+        
+        Returns:
+            Path to the most likely file or None if not found
+        """
+        # First check if this is a class we know about
+        for file_path, info in self.file_info.items():
+            if class_name in info.get('types', []):
+                # Check if the file has this method
+                if method_name in info.get('methods', []):
+                    return file_path
+    
+        # If we couldn't find a direct match, look for files that have this method
+        potential_files = []
+        for file_path, info in self.file_info.items():
+            if method_name in info.get('methods', []):
+                potential_files.append(file_path)
+    
+        # If we found exactly one potential file, use that
+        if len(potential_files) == 1:
+            return potential_files[0]
+        
+        # Otherwise, we can't determine the file with confidence
+        return None
+
     
     def get_method_details(self, file_path, method_name=None):
         """
