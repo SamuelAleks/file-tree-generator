@@ -2,6 +2,8 @@ import os
 import datetime
 import argparse
 import sys
+import re
+
 
 def parse_args():
     """Parse command line arguments for file tree generator"""
@@ -39,6 +41,11 @@ def parse_args():
                     help="Show verbose output during processing")
     parser.add_argument("--ultra-compact", "-uc", action="store_true",
                         help="Use ultra-compact view for maximum token efficiency")
+    # Add new arguments
+    parser.add_argument("--remove-comments", "-rc", action="store_true",
+                        help="Remove comments from file content")
+    parser.add_argument("--exclude-empty-lines", "-eel", action="store_true",
+                        help="Exclude empty lines from file content")
     
     return parser.parse_args()
 
@@ -48,6 +55,9 @@ that maximizes token efficiency while preserving all data.
 """
 def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, blacklist_files=None, 
                   max_lines=1000, max_line_length=300, compact_view=False, ultra_compact_view=False,
+                  remove_comments=False, exclude_empty_lines=False,
+                  #hide_binary_files=False, 
+                  smart_truncate=False, hide_repeated_sections=False,
                   priority_folders=None, priority_files=None, referenced_files=None):
     """
     Generate a text-based visual representation of a directory tree and file contents.
@@ -62,11 +72,16 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
     max_line_length (int): Maximum length of each line to display
     compact_view (bool): Use compact view for cleaner output
     ultra_compact_view (bool): Use ultra-compact view for maximum token efficiency
+    remove_comments (bool): Remove comments from file content
+    exclude_empty_lines (bool): Exclude empty lines from file content
+    hide_binary_files (bool): Hide binary file contents
+    smart_truncate (bool): Use smart line truncation
+    hide_repeated_sections (bool): Collapse repeated code sections
     priority_folders (list): Folders to prioritize in the output
     priority_files (list): Files to prioritize in the output
     referenced_files (set): Set of files that are referenced (for reference tracking mode)
     """
-    # Initialize lists
+    # Initialize lists and options
     blacklist_folders = set(blacklist_folders or [])
     blacklist_files = set(blacklist_files or [])
     priority_folders = priority_folders or []
@@ -141,7 +156,10 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
         except (PermissionError, OSError):
             relevant_files_cache[dir_path] = False
             return False
-    
+
+
+
+
     def process_directory(current_dir, prefix=""):
         try:
             # Check if directory is blacklisted
@@ -270,7 +288,8 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
                     if reference_tracking_mode and not is_referenced:
                         continue
                     
-                    success, lines, error = safe_read_file(full_path, max_lines)
+                    success, lines, error = safe_read_file(full_path, max_lines, remove_comments, exclude_empty_lines)
+
                     if not success:
                         # Make sure content_prefix is not None (safety check)
                         prefix_to_use = content_prefix if content_prefix is not None else ""
@@ -282,6 +301,17 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
                             output.append(f"{prefix_to_use}│ ERROR: {error}")
                             output.append(f"{prefix_to_use}└{'─' * 70}")
                         continue
+
+                    
+                    # Apply additional efficiency processing
+                    lines = process_file_content(
+                        full_path, 
+                        lines, 
+                        #hide_binary=hide_binary_files,
+                        smart_truncate=smart_truncate,
+                        hide_repeated=hide_repeated_sections,
+                        max_line_length=max_line_length
+                    )
                         
                     # Make sure content_prefix is not None (safety check)
                     prefix_to_use = content_prefix if content_prefix is not None else ""
@@ -479,6 +509,101 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
         return f"Error: {error}"
 
     return f"Text tree file generated successfully at {os.path.abspath(output_file)}"
+
+def process_file_content(file_path, lines, hide_binary=False, smart_truncate=False, 
+                       hide_repeated=False, max_line_length=300):
+    """Process file content with efficiency options"""
+    
+    # Check if it's a binary file and we should hide binary content
+    if hide_binary and is_binary_file(file_path):
+        return ["[Binary file content not shown]"]
+    
+    # Apply smart truncation if enabled
+    if smart_truncate:
+        lines = [smart_truncate_line(line, max_line_length) for line in lines]
+    
+    # Collapse repeated sections if enabled
+    if hide_repeated:
+        lines = collapse_repeated_sections(lines)
+    
+    return lines
+def clean_file_content(file_path, content_lines, remove_comments=False, exclude_empty_lines=False):
+    """
+    Clean file content by removing comments and empty lines if enabled.
+    
+    Args:
+        file_path: Path to the file
+        content_lines: List of content lines
+        remove_comments: Whether to remove comments
+        exclude_empty_lines: Whether to exclude empty lines
+        
+    Returns:
+        List of cleaned content lines
+    """
+    if not (remove_comments or exclude_empty_lines):
+        return content_lines
+        
+    # Get file extension
+    _, ext = os.path.splitext(file_path.lower())
+    
+    # Process content based on settings and file type
+    processed_lines = content_lines.copy()
+    
+    # Step 1: Remove comments if enabled
+    if remove_comments:
+        processed_lines = remove_code_comments(processed_lines, ext)
+    
+    # Step 2: Exclude empty lines if enabled
+    if exclude_empty_lines:
+        processed_lines = [line for line in processed_lines if line.strip()]
+        
+    return processed_lines
+
+def remove_code_comments(lines, ext):
+    """
+    Remove comments from code based on file extension.
+    
+    Args:
+        lines: List of content lines
+        ext: File extension
+        
+    Returns:
+        List of lines with comments removed
+    """
+    # Join lines to handle multi-line comments
+    content = '\n'.join(lines)
+    
+    # C-style languages (C, C++, C#, Java, JavaScript, etc.)
+    if ext in ['.c', '.cpp', '.cs', '.h', '.hpp', '.java', '.js', '.ts', '.php', '.swift']:
+        # Remove multi-line comments (/* */)
+        content = re.sub(r'/\*[\s\S]*?\*/', '', content)
+        # Remove single-line comments (// and ///)
+        content = re.sub(r'//.*?$', '', content, flags=re.MULTILINE)
+    
+    # Python, Ruby, Bash, etc.
+    elif ext in ['.py', '.rb', '.sh', '.bash', '.yml', '.yaml']:
+        # Remove single-line comments (#)
+        content = re.sub(r'#.*?$', '', content, flags=re.MULTILINE)
+    
+    # HTML/XML
+    elif ext in ['.html', '.htm', '.xml', '.svg', '.jsp', '.aspx']:
+        # Remove HTML/XML comments (<!-- -->)
+        content = re.sub(r'<!--[\s\S]*?-->', '', content)
+    
+    # CSS
+    elif ext in ['.css', '.scss', '.less']:
+        # Remove CSS comments (/* */)
+        content = re.sub(r'/\*[\s\S]*?\*/', '', content)
+    
+    # SQL
+    elif ext in ['.sql']:
+        # Remove SQL single-line comments (--)
+        content = re.sub(r'--.*?$', '', content, flags=re.MULTILINE)
+        # Remove SQL multi-line comments (/* */)
+        content = re.sub(r'/\*[\s\S]*?\*/', '', content)
+    
+    # Return the content split back into lines
+    return content.split('\n')
 
 def export_as_html(output_lines, output_file):
     """
@@ -782,16 +907,145 @@ def export_as_json(output_lines, output_file):
     # Write JSON output
     with open(output_file, 'w', encoding='utf-8') as f:
         json.dump(file_tree, f, indent=2)
-
-
-def safe_read_file(file_path, max_lines=None):
+def is_binary_file(file_path):
     """
-    Safely read a file with proper error handling
+    Check if a file is binary by reading the first few bytes.
+    
+    Args:
+        file_path: Path to the file
+        
+    Returns:
+        True if the file appears to be binary, False otherwise
+    """
+    try:
+        with open(file_path, 'rb') as f:
+            # Read first 8KB of the file
+            chunk = f.read(8192)
+            # Check for null bytes which typically indicate binary content
+            if b'\x00' in chunk:
+                return True
+                
+            # Count printable vs non-printable characters
+            printable_chars = sum(1 for byte in chunk if 32 <= byte <= 126 or byte in (9, 10, 13))  # tab, LF, CR
+            if printable_chars < len(chunk) * 0.8:  # If less than 80% printable, consider it binary
+                return True
+                
+        return False
+    except Exception:
+        # If there's an error, assume it's not binary
+        return False
+
+def smart_truncate_line(line, max_length=80):
+    """
+    Intelligently truncate a line to preserve important content.
+    
+    Args:
+        line: The line to truncate
+        max_length: Maximum desired length
+        
+    Returns:
+        Truncated line with ellipsis if needed
+    """
+    if len(line) <= max_length:
+        return line
+        
+    # Special handling for different line types
+    
+    # 1. Try to preserve function definitions and declarations
+    if re.match(r'^\s*(public|private|protected|internal|static|void|function|def|class|interface|struct|enum)\s+\w+', line):
+        # Find opening parenthesis
+        paren_pos = line.find('(')
+        if paren_pos > 0:
+            # Find position of last parenthesis
+            last_paren = line.rfind(')')
+            if last_paren > paren_pos:
+                # Calculate what we can show
+                prefix_end = min(paren_pos + 1, max_length - 10)
+                prefix = line[:prefix_end]
+                
+                suffix_start = max(last_paren - 5, prefix_end)
+                suffix = line[suffix_start:]
+                
+                if len(prefix) + len(suffix) < max_length:
+                    return prefix + "..." + suffix
+                else:
+                    return prefix + "..."
+    
+    # 2. Try to preserve imports, using statements, etc.
+    if re.match(r'^\s*(import|using|require|include|from)\s+', line):
+        return line[:max_length-3] + "..."
+    
+    # 3. Preserve assignment statements by showing beginning and end
+    if '=' in line:
+        pos = line.find('=')
+        if pos > 0 and pos < max_length - 10:
+            prefix = line[:pos+1]
+            suffix = line[-(max_length-len(prefix)-3):]
+            if len(prefix) + len(suffix) < max_length:
+                return prefix + "..." + suffix
+    
+    # 4. Default truncation with ellipsis
+    return line[:max_length-3] + "..."
+
+def collapse_repeated_sections(lines, threshold=4):
+    """
+    Identify and collapse repeated sections of code.
+    
+    Args:
+        lines: List of content lines
+        threshold: Minimum number of identical lines to trigger collapse
+        
+    Returns:
+        List of lines with repeated sections collapsed
+    """
+    if not lines or len(lines) < threshold * 2:
+        return lines
+        
+    result = []
+    i = 0
+    
+    while i < len(lines):
+        # Check for repeating patterns starting from this line
+        repeated = False
+        
+        # Try different pattern lengths
+        for pattern_len in range(1, min(10, len(lines) - i)):
+            # Extract pattern
+            pattern = lines[i:i+pattern_len]
+            
+            # Count repetitions
+            repetitions = 1
+            j = i + pattern_len
+            
+            while j + pattern_len <= len(lines) and lines[j:j+pattern_len] == pattern:
+                repetitions += 1
+                j += pattern_len
+            
+            # If pattern repeats enough times, collapse it
+            if repetitions >= threshold and pattern_len * repetitions >= threshold:
+                result.extend(pattern)  # Add pattern once
+                result.append(f"... [above pattern repeated {repetitions-1} more times]")
+                i = j  # Skip to end of repeated section
+                repeated = True
+                break
+        
+        if not repeated:
+            # If no repeating pattern found, add the line and continue
+            result.append(lines[i])
+            i += 1
+    
+    return result
+
+def safe_read_file(file_path, max_lines=None, remove_comments=False, exclude_empty_lines=False):
+    """
+    Safely read a file with proper error handling and content preprocessing.
     
     Args:
         file_path: Path to the file
         max_lines: Maximum number of lines to read (None for all)
-        
+        remove_comments: Whether to remove comments
+        exclude_empty_lines: Whether to exclude empty lines
+            
     Returns:
         Tuple of (success, content_lines, error_message)
     """
@@ -805,9 +1059,17 @@ def safe_read_file(file_path, max_lines=None):
                         lines.append(f"... (truncated after {max_lines} lines)")
                         break
                     lines.append(line.rstrip('\r\n'))
-                return True, lines, None
             else:
-                return True, f.read().splitlines(), None
+                lines = f.read().splitlines()
+            
+            # Clean file content (remove comments and/or empty lines)
+            lines = clean_file_content(file_path, lines, remove_comments, exclude_empty_lines)
+            
+            # If the file is now empty after processing, add a note
+            if not lines:
+                lines = ["[File content empty after processing]"]
+                
+            return True, lines, None
     except UnicodeDecodeError:
         try:
             # Try with system default encoding

@@ -144,10 +144,57 @@ class FileTreeGeneratorApp:
         self.compact_view_var = tk.BooleanVar(value=self.config.get('compact_view', False))
         ttk.Checkbutton(advanced_frame, text="Compact View", variable=self.compact_view_var).grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=5)
         
-         # Ultra-compact view checkbox
+        # Create efficiency options frame
+        efficiency_frame = ttk.LabelFrame(main_frame, text="Efficiency Options", padding="10")
+        efficiency_frame.pack(fill=tk.X, pady=5)
+    
+        # Ultra-compact view checkbox (moved from advanced frame to efficiency frame)
         self.ultra_compact_view_var = tk.BooleanVar(value=self.config.get('ultra_compact_view', False))
-        ttk.Checkbutton(advanced_frame, text="Ultra-Compact View", variable=self.ultra_compact_view_var, 
-                        command=self.toggle_compact_options).grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=5)
+        ttk.Checkbutton(efficiency_frame, text="Ultra-Compact View", 
+                       variable=self.ultra_compact_view_var,
+                       command=self.toggle_efficiency_options).grid(row=0, column=0, sticky=tk.W)
+    
+        # Comment removal checkbox
+        self.remove_comments_var = tk.BooleanVar(value=self.config.get('remove_comments', False))
+        ttk.Checkbutton(efficiency_frame, text="Remove Comments", 
+                       variable=self.remove_comments_var).grid(row=0, column=1, sticky=tk.W)
+    
+        # Empty line exclusion checkbox
+        self.exclude_empty_lines_var = tk.BooleanVar(value=self.config.get('exclude_empty_lines', False))
+        ttk.Checkbutton(efficiency_frame, text="Exclude Empty Lines", 
+                       variable=self.exclude_empty_lines_var).grid(row=0, column=2, sticky=tk.W)
+    
+        # Add tooltips for each option
+        self.create_tooltip(efficiency_frame.winfo_children()[0], 
+                         "Minimizes formatting for maximum efficiency")
+        self.create_tooltip(efficiency_frame.winfo_children()[1], 
+                         "Removes comments from code files (// /* */ # <!-- --> etc.)")
+        self.create_tooltip(efficiency_frame.winfo_children()[2], 
+                         "Excludes blank lines from file content")
+                     
+        # Additional efficiency options in row 1
+        # Truncate long lines toggle
+        self.smart_truncate_var = tk.BooleanVar(value=self.config.get('smart_truncate', False))
+        ttk.Checkbutton(efficiency_frame, text="Smart Line Truncation", 
+                       variable=self.smart_truncate_var).grid(row=1, column=0, sticky=tk.W)
+    
+        # Hide binary files toggle
+        self.hide_binary_files_var = tk.BooleanVar(value=self.config.get('smart_truncate', False))
+        ttk.Checkbutton(efficiency_frame, text="Hide Binary Files", 
+                       variable=self.hide_binary_files_var).grid(row=1, column=1, sticky=tk.W)
+    
+        # Hide repeated sections toggle
+        self.hide_repeated_sections_var = tk.BooleanVar(value=self.config.get('hide_repeated_sections', False))
+        ttk.Checkbutton(efficiency_frame, text="Hide Repeated Sections", 
+                        variable=self.hide_repeated_sections_var).grid(row=1, column=2, sticky=tk.W)
+    
+        # Add tooltips for the additional options
+        self.create_tooltip(efficiency_frame.winfo_children()[3], 
+                         "Intelligently truncate long lines to preserve important content")
+        self.create_tooltip(efficiency_frame.winfo_children()[4], 
+                         "Exclude binary file contents from the output")
+        self.create_tooltip(efficiency_frame.winfo_children()[5], 
+                         "Collapse repeated code sections and show only once")
 
         # Create buttons frame
         buttons_frame = ttk.Frame(main_frame)
@@ -176,6 +223,37 @@ class FileTreeGeneratorApp:
         self.log_text.config(state=tk.DISABLED)
         # Check for updates at startup (non-blocking)
         check_updates_at_startup(self.root)
+
+
+
+    def create_tooltip(self, widget, text):
+        """Create a tooltip for a widget"""
+        def enter(event):
+            tooltip = tk.Toplevel(widget)
+            tooltip.overrideredirect(True)
+            tooltip.geometry(f"+{event.x_root+15}+{event.y_root+10}")
+        
+            label = ttk.Label(tooltip, text=text, background="#FFFFD0", relief="solid", borderwidth=1)
+            label.pack()
+        
+            widget.tooltip = tooltip
+        
+        def leave(event):
+            if hasattr(widget, "tooltip"):
+                widget.tooltip.destroy()
+            
+        widget.bind("<Enter>", enter)
+        widget.bind("<Leave>", leave)
+
+    def toggle_efficiency_options(self):
+        """Toggle various options based on efficiency settings"""
+        # If ultra-compact is enabled, automatically enable compact
+        if self.ultra_compact_view_var.get():
+            self.compact_view_var.set(True)
+        
+        # Optional: You could automatically enable other efficiency options
+        # when ultra-compact is selected, but it's probably better to
+        # let the user control these independently
 
     def toggle_compact_options(self):
         """Disable compact view if ultra-compact is enabled"""
@@ -235,7 +313,13 @@ class FileTreeGeneratorApp:
                 'export_format': self.export_format_var.get(),
                 'reference_tracking': self.reference_tracking_var.get(),
                 'reference_depth': self.reference_depth_var.get(),
-                'unlimited_depth': self.unlimited_depth_var.get()
+                'unlimited_depth': self.unlimited_depth_var.get(),
+                'ultra_compact_view': self.ultra_compact_view_var.get(),
+                'remove_comments': self.remove_comments_var.get(),
+                'exclude_empty_lines': self.exclude_empty_lines_var.get(),
+                'smart_truncate': self.smart_truncate_var.get(),
+                #'hide_binary_files': self.hide_binary_files_var.get(),
+                'hide_repeated_sections': self.hide_repeated_sections_var.get(),
             }
         
             # Save config
@@ -386,6 +470,11 @@ class FileTreeGeneratorApp:
                 max_line_length=self.max_line_length_var.get(),
                 compact_view=self.compact_view_var.get(),
                 ultra_compact_view=self.ultra_compact_view_var.get(),
+                remove_comments=self.remove_comments_var.get(),
+                exclude_empty_lines=self.exclude_empty_lines_var.get(),
+                #hide_binary_files=self.hide_binary_files_var.get(),
+                #smart_truncate=self.smart_truncate_var.get(), 
+                #hide_repeated_sections=self.hide_repeated_sections_var.get(),
                 priority_folders=priority_folders,
                 priority_files=priority_files,
                 referenced_files=referenced_files
