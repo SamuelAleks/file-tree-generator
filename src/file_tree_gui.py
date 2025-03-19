@@ -375,8 +375,8 @@ class FileTreeGeneratorApp:
                 max_line_length=self.max_line_length_var.get(),
                 compact_view=self.compact_view_var.get(),
                 priority_folders=priority_folders,
-                priority_files=priority_files
-                # referenced_files parameter removed temporarily
+                priority_files=priority_files,
+                referenced_files=referenced_files
             )
 
             # Convert to desired format if needed
