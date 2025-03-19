@@ -1,11 +1,11 @@
-import os
+﻿import os
 import tkinter as tk
 from tkinter import ttk
 
 class FileSelector(tk.Toplevel):
     """Dialog for selecting files from a directory tree"""
     
-    def __init__(self, parent, root_dir, file_extension=".cs"):
+    def __init__(self, parent, root_dir, file_extension=".cs", include_xaml=True):
         super().__init__(parent)
         self.title("Select Files for Reference Analysis")
         self.geometry("500x600")
@@ -15,6 +15,7 @@ class FileSelector(tk.Toplevel):
         
         self.root_dir = root_dir
         self.file_extension = file_extension
+        self.include_xaml = include_xaml
         self.selected_files = []
         
         # Create main frame with padding
@@ -23,6 +24,24 @@ class FileSelector(tk.Toplevel):
         
         # Instructions
         ttk.Label(main_frame, text="Select files to analyze for references:").pack(anchor=tk.W, pady=(0, 5))
+        
+        # File filter options
+        filter_frame = ttk.Frame(main_frame)
+        filter_frame.pack(fill=tk.X, pady=5)
+        
+        # Add XAML file toggle
+        self.include_xaml_var = tk.BooleanVar(value=include_xaml)
+        ttk.Checkbutton(filter_frame, text="Include XAML/AXAML Files", 
+                       variable=self.include_xaml_var,
+                       command=self.refresh_tree).grid(row=0, column=0, sticky=tk.W)
+        
+        # Add quick filter buttons
+        ttk.Button(filter_frame, text="C# Files Only", 
+                  command=lambda: self.filter_by_extension('.cs')).grid(row=0, column=1, padx=5)
+        ttk.Button(filter_frame, text="XAML Files Only", 
+                  command=lambda: self.filter_by_extension(('.xaml', '.axaml'))).grid(row=0, column=2, padx=5)
+        ttk.Button(filter_frame, text="Show All", 
+                  command=self.show_all_files).grid(row=0, column=3, padx=5)
         
         # File tree display with scrollbars
         tree_frame = ttk.Frame(main_frame)
@@ -75,6 +94,67 @@ class FileSelector(tk.Toplevel):
         # Bind selection event
         self.tree.bind("<<TreeviewSelect>>", self.update_selection_count)
     
+    def filter_by_extension(self, extensions):
+        """Filter the tree to show only files with specific extensions"""
+        # Make sure extensions is a tuple or list
+        if isinstance(extensions, str):
+            extensions = (extensions,)
+            
+        # First unselect all
+        for item_id in self.tree.selection():
+            self.tree.selection_remove(item_id)
+            
+        # Then select files with matching extensions
+        for item_id in self.get_all_items():
+            item_type = self.tree.item(item_id, "values")[1]
+            if item_type == "file":
+                file_path = self.tree.item(item_id, "values")[0]
+                file_ext = os.path.splitext(file_path)[1].lower()
+                if file_ext in extensions:
+                    self.tree.see(item_id)  # Scroll to make visible
+                    self.tree.selection_add(item_id)
+                    
+        self.update_selection_count()
+    
+    def show_all_files(self):
+        """Show all files (clear filters)"""
+        self.include_xaml_var.set(True)
+        self.refresh_tree()
+    
+    def refresh_tree(self):
+        """Refresh the tree when filter options change"""
+        # Remember the current selection
+        selected_paths = [self.tree.item(item_id, "values")[0] 
+                        for item_id in self.tree.selection() 
+                        if self.tree.item(item_id, "values")[1] == "file"]
+        
+        # Clear the tree
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+            
+        # Repopulate the tree
+        self.populate_tree()
+        
+        # Restore selection where possible
+        for item_id in self.get_all_items():
+            item_type = self.tree.item(item_id, "values")[1]
+            if item_type == "file":
+                file_path = self.tree.item(item_id, "values")[0]
+                if file_path in selected_paths:
+                    self.tree.selection_add(item_id)
+                    
+        self.update_selection_count()
+    
+    def get_all_items(self):
+        """Get all items in the tree recursively"""
+        def collect_items(parent):
+            items = list(self.tree.get_children(parent))
+            for item in items.copy():
+                items.extend(collect_items(item))
+            return items
+            
+        return collect_items('')
+    
     def populate_tree(self):
         """Populate the tree with files from the root directory"""
         # Insert the root node
@@ -103,9 +183,19 @@ class FileSelector(tk.Toplevel):
             # Then add files
             for item in items:
                 item_path = os.path.join(parent_dir, item)
-                if os.path.isfile(item_path) and item.endswith(self.file_extension):
-                    self.tree.insert(parent_node, "end", text=item, 
-                                    values=(item_path, "file"))
+                if os.path.isfile(item_path):
+                    file_ext = os.path.splitext(item)[1].lower()
+                    
+                    # Check if it's a C# file or a XAML file that should be included
+                    if file_ext == self.file_extension or \
+                       (self.include_xaml_var.get() and file_ext in ('.xaml', '.axaml')):
+                        # Determine icon based on file type
+                        icon = "📄"  # Default icon
+                        if file_ext in ('.xaml', '.axaml'):
+                            icon = "🖼️"  # Special icon for XAML files
+                            
+                        self.tree.insert(parent_node, "end", text=f"{icon} {item}", 
+                                        values=(item_path, "file"))
         except (PermissionError, FileNotFoundError):
             # Handle permission errors or deleted directories
             pass
@@ -115,7 +205,9 @@ class FileSelector(tk.Toplevel):
         try:
             for root, _, files in os.walk(directory):
                 for file in files:
-                    if file.endswith(self.file_extension):
+                    file_ext = os.path.splitext(file)[1].lower()
+                    if file_ext == self.file_extension or \
+                       (self.include_xaml_var.get() and file_ext in ('.xaml', '.axaml')):
                         return True
             return False
         except (PermissionError, FileNotFoundError):

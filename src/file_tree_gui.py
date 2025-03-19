@@ -107,12 +107,21 @@ class FileTreeGeneratorApp:
                                   textvariable=self.reference_depth_var, width=5)
         self.depth_spinbox.grid(row=0, column=2, sticky=tk.W)
 
-        # Unlimited depth checkbox
+       # Unlimited depth checkbox
         self.unlimited_depth_var = tk.BooleanVar(value=self.config.get('unlimited_depth', False))
         self.unlimited_depth_check = ttk.Checkbutton(reference_frame, text="Unlimited Depth", 
                                               variable=self.unlimited_depth_var,
                                               command=self.toggle_depth_spinner)
         self.unlimited_depth_check.grid(row=0, column=3, sticky=tk.W, padx=5)
+
+        # Add XAML ignore checkbox
+        self.ignore_xaml_var = tk.BooleanVar(value=self.config.get('ignore_xaml', False))
+        self.ignore_xaml_check = ttk.Checkbutton(reference_frame, text="Ignore XAML/AXAML Files", 
+                                         variable=self.ignore_xaml_var,
+                                         command=self.toggle_xaml_options)
+        self.ignore_xaml_check.grid(row=0, column=4, sticky=tk.W, padx=5)
+        self.create_tooltip(self.ignore_xaml_check, 
+                         "Ignore XAML/AXAML files during reference tracking (except selected files)")
 
         # Selected files display
         ttk.Label(reference_frame, text="Selected Files:").grid(row=1, column=0, sticky=tk.W, pady=5)
@@ -314,6 +323,7 @@ class FileTreeGeneratorApp:
                 'reference_tracking': self.reference_tracking_var.get(),
                 'reference_depth': self.reference_depth_var.get(),
                 'unlimited_depth': self.unlimited_depth_var.get(),
+                'ignore_xaml': self.ignore_xaml_var.get(),  # Add ignore_xaml to config
                 'ultra_compact_view': self.ultra_compact_view_var.get(),
                 'remove_comments': self.remove_comments_var.get(),
                 'exclude_empty_lines': self.exclude_empty_lines_var.get(),
@@ -410,9 +420,9 @@ class FileTreeGeneratorApp:
                 if not self.selected_files:
                     messagebox.showerror("Error", "Please select at least one file for reference tracking")
                     return
-        
+            
                 self.log(f"Reference tracking enabled with {len(self.selected_files)} selected files")
-        
+            
                 # Determine reference depth
                 if self.unlimited_depth_var.get():
                     depth = float('inf')
@@ -420,14 +430,23 @@ class FileTreeGeneratorApp:
                 else:
                     depth = self.reference_depth_var.get()
                     self.log(f"Using reference depth of {depth}")
-        
+                
+                # Check if XAML files should be ignored
+                ignore_xaml = self.ignore_xaml_var.get()
+                if ignore_xaml:
+                    self.log("Ignoring XAML/AXAML files (except selected ones)")
+            
                 # Parse and analyze C# files
-                self.log("Analyzing C# references...")
+                self.log("Analyzing C# and XAML references...")
                 reference_manager = ReferenceTrackingManager(root_dir, log_callback=self.log)
                 reference_manager.parse_directory()
-        
+            
                 # Find related files
-                referenced_files = reference_manager.find_related_files(self.selected_files, depth)
+                referenced_files = reference_manager.find_related_files(
+                    self.selected_files, 
+                    depth,
+                    ignore_xaml=ignore_xaml
+                )
         
                 # Add reference summary to log
                 summary = reference_manager.generate_reference_summary(referenced_files)
@@ -546,6 +565,8 @@ class FileTreeGeneratorApp:
                 self.depth_spinbox.configure(state=state)
             if hasattr(self, 'unlimited_depth_check'):
                 self.unlimited_depth_check.configure(state=state)
+            if hasattr(self, 'ignore_xaml_check'):
+                self.ignore_xaml_check.configure(state=state)
             if hasattr(self, 'select_files_button'):
                 self.select_files_button.configure(state=state)
         except Exception as e:
@@ -561,6 +582,16 @@ class FileTreeGeneratorApp:
                     self.depth_spinbox.configure(state="normal")
         except Exception as e:
             print(f"Error in toggle_depth_spinner: {str(e)}")
+    
+    def toggle_xaml_options(self):
+        """Update status message when XAML ignore option changes"""
+        try:
+            if self.reference_tracking_var.get() and self.ignore_xaml_var.get():
+                self.log("XAML/AXAML files will be ignored during reference tracking (except selected files)")
+            elif self.reference_tracking_var.get():
+                self.log("XAML/AXAML files will be included in reference tracking")
+        except Exception as e:
+            print(f"Error in toggle_xaml_options: {str(e)}")
 
     def select_reference_files(self):
         """Open dialog to select files for reference tracking"""
@@ -569,8 +600,13 @@ class FileTreeGeneratorApp:
             messagebox.showerror("Error", "Please select a valid root directory first")
             return
     
-        # Open file selector dialog
-        file_selector = FileSelector(self.root, root_dir, file_extension=".cs")
+        # Open file selector dialog with XAML support
+        file_selector = FileSelector(
+            self.root, 
+            root_dir, 
+            file_extension=".cs", 
+            include_xaml=not self.ignore_xaml_var.get()
+        )
         self.root.wait_window(file_selector)
     
         # Get selected files
@@ -583,6 +619,24 @@ class FileTreeGeneratorApp:
             self.selected_files_var.set("1 file selected")
         else:
             self.selected_files_var.set(f"{len(self.selected_files)} files selected")
+        
+        # Count selected file types for better user feedback
+        xaml_count = sum(1 for file in self.selected_files 
+                        if file.endswith(('.xaml', '.axaml')))
+        cs_count = sum(1 for file in self.selected_files 
+                      if file.endswith('.cs'))
+    
+        if xaml_count > 0 or cs_count > 0:
+            self.log(f"Selected {cs_count} C# files and {xaml_count} XAML/AXAML files")
+        
+        # If XAML files are selected but ignore_xaml is enabled, show info message
+        if xaml_count > 0 and self.ignore_xaml_var.get():
+            self.log("Note: Selected XAML/AXAML files will be included even though 'Ignore XAML/AXAML Files' is enabled")
+            messagebox.showinfo(
+                "XAML Files Selected", 
+                "You've selected XAML/AXAML files. These will be included in the analysis even though 'Ignore XAML/AXAML Files' is enabled.\n\n"
+                "The 'Ignore XAML/AXAML Files' option only affects files discovered during reference tracking, not files that you explicitly select."
+            )
 
         
     def show_about(self):

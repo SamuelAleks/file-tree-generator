@@ -1,5 +1,6 @@
 import re
 import os
+import xml.etree.ElementTree as ET
 from collections import defaultdict
 
 class CSharpReferenceTracker:
@@ -11,6 +12,7 @@ class CSharpReferenceTracker:
     1. Parse C# source files to identify declarations and references
     2. Build a reference graph showing how files relate to each other
     3. Find all files related to a set of starting files within a specified depth
+    4. Parse XAML/AXAML files and link them to their code-behind files
     """
     
     def __init__(self):
@@ -44,18 +46,48 @@ class CSharpReferenceTracker:
         # Graph of references between files
         self.reference_graph = defaultdict(set)  # file_path -> {referenced_files}
         self.reverse_graph = defaultdict(set)    # file_path -> {files_referencing_this}
+        
+        # XAML relationship tracking
+        self.xaml_to_cs_mapping = {}  # xaml_file_path -> cs_file_path
+        self.cs_to_xaml_mapping = {}  # cs_file_path -> xaml_file_path
     
-    def parse_directory(self, directory, file_extension=".cs"):
-        """Parse all C# files in a directory and its subdirectories"""
+    def parse_directory(self, directory, include_xaml=True):
+        """
+        Parse all C# files in a directory and its subdirectories
+        
+        Args:
+            directory: Root directory to parse
+            include_xaml: Whether to include XAML files in the analysis
+            
+        Returns:
+            Number of files parsed
+        """
+        # Track the number of files parsed
+        files_parsed = 0
+        
+        # First pass: Parse all C# files to collect type information
         for root, _, files in os.walk(directory):
             for file in files:
-                if file.endswith(file_extension):
+                if file.endswith(".cs"):
                     full_path = os.path.join(root, file)
-                    self.parse_file(full_path)
+                    if self.parse_file(full_path):
+                        files_parsed += 1
+        
+        # Second pass: Parse XAML files if enabled
+        if include_xaml:
+            for root, _, files in os.walk(directory):
+                for file in files:
+                    if file.endswith(".xaml") or file.endswith(".axaml"):
+                        full_path = os.path.join(root, file)
+                        if self.parse_xaml_file(full_path):
+                            files_parsed += 1
+        
+        # Third pass: Analyze code-behind relationships
+        self.discover_code_behind_relationships()
         
         # Build reference graph after parsing all files
         self._build_reference_graph()
-        return len(self.file_info)
+        return files_parsed
     
     def parse_file(self, file_path):
         """Parse a C# file and extract declarations and references"""
@@ -92,13 +124,90 @@ class CSharpReferenceTracker:
                 'methods': methods,
                 'references': references,
                 'inheritance': inheritance,
-                'raw_content': content  # Keep original content for later highlighting
+                'raw_content': content,  # Keep original content for later highlighting
+                'is_xaml': False
             }
             
-            return self.file_info[file_path]
+            return True
         except Exception as e:
             print(f"Error parsing {file_path}: {str(e)}")
-            return None
+            return False
+    
+    def parse_xaml_file(self, file_path):
+        """
+        Parse a XAML or AXAML file to extract references to code-behind
+        
+        Args:
+            file_path: Path to the XAML file
+            
+        Returns:
+            Boolean indicating parsing success
+        """
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                content = f.read()
+            
+            # Extract x:Class attribute which points to the code-behind class
+            class_name = None
+            
+            # Use regex for more reliable parsing than XML parsing due to XAML namespaces
+            class_match = re.search(r'x:Class="([^"]+)"', content)
+            if class_match:
+                class_name = class_match.group(1)
+            
+            # Store the XAML file information
+            self.file_info[file_path] = {
+                'namespace': '',  # XAML files don't have a namespace in the same way
+                'types': [class_name] if class_name else [],
+                'methods': [],
+                'references': [],
+                'inheritance': [],
+                'raw_content': content,
+                'is_xaml': True,
+                'code_behind_class': class_name
+            }
+            
+            return True
+        except Exception as e:
+            print(f"Error parsing XAML file {file_path}: {str(e)}")
+            return False
+    
+    def discover_code_behind_relationships(self):
+        """
+        Discover relationships between XAML files and their code-behind CS files
+        """
+        # Map from class name to C# file that defines it
+        class_to_file = {}
+        
+        # First, build a map of class names to files
+        for file_path, info in self.file_info.items():
+            if not info.get('is_xaml', False):  # Only for C# files
+                for type_name in info.get('types', []):
+                    qualified_name = f"{info['namespace']}.{type_name}" if info['namespace'] else type_name
+                    class_to_file[qualified_name] = file_path
+                    # Also map the unqualified name to handle cases where namespaces might not match
+                    class_to_file[type_name] = file_path
+        
+        # Now find XAML files and link them to their code-behind
+        for xaml_file, info in list(self.file_info.items()):
+            if info.get('is_xaml', False):
+                code_behind_class = info.get('code_behind_class')
+                if code_behind_class and code_behind_class in class_to_file:
+                    cs_file = class_to_file[code_behind_class]
+                    
+                    # Create the mapping between XAML and CS files
+                    self.xaml_to_cs_mapping[xaml_file] = cs_file
+                    self.cs_to_xaml_mapping[cs_file] = xaml_file
+                    
+                    # Add a "xaml_file" reference to the C# file info
+                    if 'xaml_files' not in self.file_info[cs_file]:
+                        self.file_info[cs_file]['xaml_files'] = []
+                    self.file_info[cs_file]['xaml_files'].append(xaml_file)
+                    
+                    # Add a reference from the XAML file to its code-behind
+                    if 'references' not in self.file_info[xaml_file]:
+                        self.file_info[xaml_file]['references'] = []
+                    self.file_info[xaml_file]['references'].append(('code_behind', code_behind_class))
     
     def _remove_comments_and_strings(self, content):
         """Remove comments and string literals to simplify parsing"""
@@ -191,6 +300,10 @@ class CSharpReferenceTracker:
         type_map = {}
         
         for file_path, info in self.file_info.items():
+            # Skip XAML files for namespace mapping
+            if info.get('is_xaml', False):
+                continue
+                
             # Map namespace to file
             if info['namespace']:
                 namespace_map[info['namespace']] = file_path
@@ -203,6 +316,20 @@ class CSharpReferenceTracker:
         
         # Now analyze each file for references
         for source_file, info in self.file_info.items():
+            # For XAML files, check code-behind relationship
+            if info.get('is_xaml', False):
+                if source_file in self.xaml_to_cs_mapping:
+                    target_file = self.xaml_to_cs_mapping[source_file]
+                    self.reference_graph[source_file].add(target_file)
+                    self.reverse_graph[target_file].add(source_file)
+                continue
+                
+            # For C# files with XAML
+            if source_file in self.cs_to_xaml_mapping:
+                xaml_file = self.cs_to_xaml_mapping[source_file]
+                self.reference_graph[source_file].add(xaml_file)
+                self.reverse_graph[xaml_file].add(source_file)
+            
             # Check using directives
             for namespace in info['using']:
                 if namespace in namespace_map:
@@ -217,6 +344,8 @@ class CSharpReferenceTracker:
                     object_name, method_name = ref_args
                     # Try to find the class that defines this method
                     for target_file, target_info in self.file_info.items():
+                        if target_info.get('is_xaml', False):
+                            continue
                         if object_name in target_info['types'] and method_name in target_info['methods']:
                             if target_file != source_file:  # Don't add self-references
                                 self.reference_graph[source_file].add(target_file)
@@ -239,7 +368,7 @@ class CSharpReferenceTracker:
                         self.reference_graph[source_file].add(target_file)
                         self.reverse_graph[target_file].add(source_file)
     
-    def find_related_files(self, start_files, max_depth=float('inf')):
+    def find_related_files(self, start_files, max_depth=float('inf'), ignore_xaml=False):
         """
         Find all files that are related to the starting files within the given depth.
         Includes both files referenced by the starting files and files that reference the starting files.
@@ -247,6 +376,7 @@ class CSharpReferenceTracker:
         Args:
             start_files: List of file paths to start from
             max_depth: Maximum reference depth to traverse (unlimited if inf)
+            ignore_xaml: Whether to ignore XAML/AXAML files in the results
             
         Returns:
             Set of file paths that are related to the starting files
@@ -271,6 +401,10 @@ class CSharpReferenceTracker:
             
             # Add files that this file references
             for referenced_file in self.reference_graph.get(current_file, set()):
+                # Skip XAML files if they should be ignored
+                if ignore_xaml and referenced_file.endswith(('.xaml', '.axaml')) and referenced_file not in start_files:
+                    continue
+                    
                 related_files.add(referenced_file)
                 if referenced_file not in visited:
                     visited.add(referenced_file)
@@ -278,10 +412,21 @@ class CSharpReferenceTracker:
             
             # Add files that reference this file
             for referencing_file in self.reverse_graph.get(current_file, set()):
+                # Skip XAML files if they should be ignored
+                if ignore_xaml and referencing_file.endswith(('.xaml', '.axaml')) and referencing_file not in start_files:
+                    continue
+                    
                 related_files.add(referencing_file)
                 if referencing_file not in visited:
                     visited.add(referencing_file)
                     queue.append((referencing_file, current_depth + 1))
+        
+        # Add explicitly selected XAML files back to the related_files set
+        # even if we're ignoring XAML files in general
+        if ignore_xaml:
+            for file_path in start_files:
+                if file_path.endswith(('.xaml', '.axaml')):
+                    related_files.add(file_path)
         
         return related_files
     

@@ -30,20 +30,34 @@ class ReferenceTrackingManager:
         if self.log_callback:
             self.log_callback(message)
     
-    def parse_directory(self):
-        """Parse all C# files in the root directory"""
+    def parse_directory(self, include_xaml=True):
+        """
+        Parse all C# and optionally XAML/AXAML files in the root directory
+        
+        Args:
+            include_xaml: Whether to include XAML/AXAML files in the analysis
+        
+        Returns:
+            Number of files parsed
+        """
         self.log(f"Parsing C# files in {self.root_dir}...")
-        self.files_parsed = self.tracker.parse_directory(self.root_dir)
-        self.log(f"Parsed {self.files_parsed} C# files")
+        if include_xaml:
+            self.log("Including XAML/AXAML files in analysis")
+        else:
+            self.log("Excluding XAML/AXAML files from analysis")
+            
+        self.files_parsed = self.tracker.parse_directory(self.root_dir, include_xaml=include_xaml)
+        self.log(f"Parsed {self.files_parsed} files")
         return self.files_parsed
     
-    def find_related_files(self, start_files, depth=float('inf')):
+    def find_related_files(self, start_files, depth=float('inf'), ignore_xaml=False):
         """
         Find all files related to the starting files.
         
         Args:
             start_files: List of files to start analysis from
             depth: Maximum reference depth to traverse
+            ignore_xaml: Whether to ignore XAML files in the results (except selected ones)
             
         Returns:
             Set of file paths that are related to the starting files
@@ -51,9 +65,22 @@ class ReferenceTrackingManager:
         if not self.files_parsed:
             self.parse_directory()
         
-        self.log(f"Finding files related to {len(start_files)} selected files (max depth: {'unlimited' if depth == float('inf') else depth})...")
-        related_files = self.tracker.find_related_files(start_files, depth)
-        self.log(f"Found {len(related_files)} related files")
+        depth_str = 'unlimited' if depth == float('inf') else depth
+        self.log(f"Finding files related to {len(start_files)} selected files (max depth: {depth_str})")
+        
+        if ignore_xaml:
+            self.log("Ignoring XAML/AXAML files (except selected ones)")
+            
+        related_files = self.tracker.find_related_files(start_files, depth, ignore_xaml=ignore_xaml)
+        
+        # Count the types of files found
+        xaml_count = sum(1 for file in related_files if file.endswith(('.xaml', '.axaml')))
+        cs_count = sum(1 for file in related_files if file.endswith('.cs'))
+        other_count = len(related_files) - xaml_count - cs_count
+        
+        self.log(f"Found {len(related_files)} related files "
+                f"({cs_count} C#, {xaml_count} XAML/AXAML, {other_count} other)")
+        
         return related_files
     
     def get_reference_details(self, file_path):
@@ -104,6 +131,10 @@ class ReferenceTrackingManager:
         methods_by_file = {}
         
         for file_path, info in self.tracker.file_info.items():
+            # Skip XAML files for method statistics
+            if info.get('is_xaml', False):
+                continue
+                
             methods = info.get('methods', [])
             method_count += len(methods)
             methods_by_file[file_path] = len(methods)
@@ -113,7 +144,7 @@ class ReferenceTrackingManager:
         
         return {
             'total_methods': method_count,
-            'avg_methods_per_file': method_count / max(1, len(self.tracker.file_info)),
+            'avg_methods_per_file': method_count / max(1, len([f for f, i in self.tracker.file_info.items() if not i.get('is_xaml', False)])),
             'top_method_files': top_method_files
         }
     
@@ -163,6 +194,15 @@ class ReferenceTrackingManager:
         summary.append(f"Total files analyzed: {self.files_parsed}")
         summary.append(f"Files with references: {len(referenced_files)}")
         
+        # Count file types
+        xaml_count = sum(1 for file in referenced_files if file.endswith(('.xaml', '.axaml')))
+        cs_count = sum(1 for file in referenced_files if file.endswith('.cs'))
+        other_count = len(referenced_files) - xaml_count - cs_count
+        
+        summary.append(f"C# files: {cs_count}")
+        summary.append(f"XAML/AXAML files: {xaml_count}")
+        summary.append(f"Other files: {other_count}")
+        
         # Get line count statistics
         total_lines, total_non_blank = self.count_total_lines(referenced_files)
         summary.append(f"\nTotal lines of code: {total_lines:,}")
@@ -181,15 +221,32 @@ class ReferenceTrackingManager:
             summary.append("\nMost Referenced Files:")
             for file_path, count in ref_stats['most_referenced']:
                 rel_path = os.path.relpath(file_path, self.root_dir)
-                methods = len(self.tracker.file_info.get(file_path, {}).get('methods', []))
-                summary.append(f" - {rel_path} (referenced by {count} files, contains {methods} methods)")
+                
+                # Add (XAML) marker for XAML files
+                file_type = ""
+                if file_path.endswith(('.xaml', '.axaml')):
+                    file_type = " (XAML)"
+                
+                # Get method count for non-XAML files
+                methods = 0
+                if not file_path.endswith(('.xaml', '.axaml')):
+                    methods = len(self.tracker.file_info.get(file_path, {}).get('methods', []))
+                    summary.append(f" - {rel_path}{file_type} (referenced by {count} files, contains {methods} methods)")
+                else:
+                    summary.append(f" - {rel_path}{file_type} (referenced by {count} files)")
         
         # Add details about files with most outgoing references
         if ref_stats['most_outgoing']:
             summary.append("\nFiles with Most Outgoing References:")
             for file_path, count in ref_stats['most_outgoing']:
                 rel_path = os.path.relpath(file_path, self.root_dir)
-                summary.append(f" - {rel_path} (references {count} other files)")
+                
+                # Add (XAML) marker for XAML files
+                file_type = ""
+                if file_path.endswith(('.xaml', '.axaml')):
+                    file_type = " (XAML)"
+                    
+                summary.append(f" - {rel_path}{file_type} (references {count} other files)")
         
         # Add details about file types
         extension_stats = {}
@@ -202,6 +259,16 @@ class ReferenceTrackingManager:
             summary.append("\nFile Types:")
             for ext, count in sorted(extension_stats.items(), key=lambda x: x[1], reverse=True):
                 summary.append(f" - {ext}: {count} files")
+            
+        # Add XAML to C# mapping information if any XAML files were found
+        xaml_files = [f for f in referenced_files if f.endswith(('.xaml', '.axaml'))]
+        if xaml_files and hasattr(self.tracker, 'xaml_to_cs_mapping'):
+            xaml_with_code_behind = 0
+            for xaml_file in xaml_files:
+                if xaml_file in self.tracker.xaml_to_cs_mapping:
+                    xaml_with_code_behind += 1
+                    
+            summary.append(f"\nXAML/AXAML with code-behind: {xaml_with_code_behind} of {len(xaml_files)} files")
         
         return "\n".join(summary)
     
