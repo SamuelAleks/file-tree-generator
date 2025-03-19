@@ -1,6 +1,7 @@
 import os
 import datetime
 import argparse
+import sys
 
 def parse_args():
     """Parse command line arguments for file tree generator"""
@@ -41,7 +42,7 @@ def parse_args():
 
 def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, blacklist_files=None, 
                   max_lines=1000, max_line_length=300, compact_view=False,
-                  priority_folders=None, priority_files=None):
+                  priority_folders=None, priority_files=None, referenced_files=None):
     """
     Generate a text-based visual representation of a directory tree and file contents.
     
@@ -56,6 +57,7 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
     compact_view (bool): Use compact view for cleaner output
     priority_folders (list): Folders to prioritize in the output
     priority_files (list): Files to prioritize in the output
+    referenced_files (set): Set of files that are referenced (for reference tracking mode)
     """
     # Initialize lists
     blacklist_folders = set(blacklist_folders or [])
@@ -63,15 +65,18 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
     priority_folders = priority_folders or []
     priority_files = priority_files or []
     
-    # Initialize reference tracking variables
-    referenced_files = None  # We'll use this to track referenced files
-    reference_tracking_mode = False
+    # Check if we're in reference tracking mode
+    reference_tracking_mode = referenced_files is not None
     
     # Initialize the output string
     output = []
     output.append(f"File Structure - {os.path.abspath(root_dir)}")
     output.append(f"Scan Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     output.append(f"Extensions: {', '.join(extensions)}")
+    
+    if reference_tracking_mode:
+        output.append(f"Reference Tracking: Enabled (tracking {len(referenced_files)} files)")
+    
     output.append("=" * 80)
     output.append("")
     
@@ -94,9 +99,18 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
                 if os.path.isfile(full_path):
                     if item in blacklist_files:
                         continue
-                    if any(item.endswith(ext) for ext in ext_set):
+                    
+                    # If we're in reference tracking mode, check if the file is referenced
+                    if reference_tracking_mode:
+                        is_relevant_extension = any(item.endswith(ext) for ext in ext_set)
+                        is_referenced = full_path in referenced_files
+                        if is_relevant_extension and (not reference_tracking_mode or is_referenced):
+                            relevant_files_cache[dir_path] = True
+                            return True
+                    elif any(item.endswith(ext) for ext in ext_set):
                         relevant_files_cache[dir_path] = True
                         return True
+                        
                 elif os.path.isdir(full_path):
                     if has_relevant_files(full_path, ext_set):
                         relevant_files_cache[dir_path] = True
@@ -107,48 +121,7 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
         except (PermissionError, OSError):
             relevant_files_cache[dir_path] = False
             return False
-
-    def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, blacklist_files=None, 
-                  max_lines=1000, max_line_length=300, compact_view=False,
-                  priority_folders=None, priority_files=None, referenced_files=None):
-        """
-        Generate a text-based visual representation of a directory tree and file contents.
     
-        Parameters:
-        root_dir (str): Root directory to start scanning
-        extensions (set): File extensions to include
-        output_file (str): Output file path
-        blacklist_folders (set): Folders to exclude
-        blacklist_files (set): Files to exclude
-        max_lines (int): Maximum number of lines to display per file
-        max_line_length (int): Maximum length of each line to display
-        compact_view (bool): Use compact view for cleaner output
-        priority_folders (list): Folders to prioritize in the output
-        priority_files (list): Files to prioritize in the output
-        referenced_files (set): Set of files that are referenced (for reference tracking mode)
-        """
-        # Initialize lists
-        blacklist_folders = set(blacklist_folders or [])
-        blacklist_files = set(blacklist_files or [])
-        priority_folders = priority_folders or []
-        priority_files = priority_files or []
-    
-        # Check if we're in reference tracking mode
-        reference_tracking_mode = referenced_files is not None
-    
-        # Initialize the output string
-        output = []
-        output.append(f"File Structure - {os.path.abspath(root_dir)}")
-        output.append(f"Scan Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        output.append(f"Extensions: {', '.join(extensions)}")
-    
-        if reference_tracking_mode:
-            output.append(f"Reference Tracking: Enabled (tracking {len(referenced_files)} files)")
-    
-        output.append("=" * 80)
-        output.append("")
-
-
     def process_directory(current_dir, prefix=""):
         try:
             # Check if directory is blacklisted
@@ -176,7 +149,11 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
             for item in items:
                 full_path = os.path.join(current_dir, item)
                 if os.path.isfile(full_path):
-                    if item not in blacklist_files and any(item.endswith(ext) for ext in extensions):
+                    # If in reference tracking mode, only include referenced files
+                    if reference_tracking_mode:
+                        if full_path in referenced_files and item not in blacklist_files and any(item.endswith(ext) for ext in extensions):
+                            files.append(item)
+                    elif item not in blacklist_files and any(item.endswith(ext) for ext in extensions):
                         files.append(item)
                 elif os.path.isdir(full_path) and item not in blacklist_folders:
                     dirs.append(item)
@@ -200,24 +177,6 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
             # Sort files by priority first, then alphabetically
             files.sort(key=lambda x: (get_file_priority(x), x))
             
-            # Sort directories and files based on priority
-            def get_folder_priority(folder_name):
-                try:
-                    return priority_folders.index(folder_name)
-                except ValueError:
-                    return len(priority_folders)
-                    
-            def get_file_priority(file_name):
-                try:
-                    return priority_files.index(file_name)
-                except ValueError:
-                    return len(priority_files)
-            
-            # Sort directories by priority first, then alphabetically
-            dirs.sort(key=lambda x: (get_folder_priority(x), x))
-            
-            # Sort files by priority first, then alphabetically
-            files.sort(key=lambda x: (get_file_priority(x), x))
             # Process all directories first, then files
             for i, item in enumerate(dirs):
                 full_path = os.path.join(current_dir, item)
@@ -269,46 +228,52 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
                     
                     success, lines, error = safe_read_file(full_path, max_lines)
                     if not success:
+                        # Make sure content_prefix is not None (safety check)
+                        prefix_to_use = content_prefix if content_prefix is not None else ""
                         if compact_view:
-                            output.append(f"---[ERROR: {error}]---")
+                            output.append(f"{prefix_to_use}---[ERROR: {error}]---")
                         else:
-                            output.append(f"{content_prefix}│ ERROR: {error}")
-                            output.append(f"{content_prefix}└{'─' * 70}")
+                            output.append(f"{prefix_to_use}│ ERROR: {error}")
+                            output.append(f"{prefix_to_use}└{'─' * 70}")
                         continue
                         
+                    # Make sure content_prefix is not None (safety check)
+                    prefix_to_use = content_prefix if content_prefix is not None else ""
                     if compact_view:
                         # Compact view with minimal decorative characters
-                        output.append(f"---[FILE: {item}]---")
+                        output.append(f"{prefix_to_use}---[FILE: {item}]---")
                         for line_num, line in enumerate(lines, 1):
                             if line_num > max_lines:
-                                output.append(f"...(+{len(lines)-max_lines} more lines)")
+                                output.append(f"{prefix_to_use}...(+{len(lines)-max_lines} more lines)")
                                 break
                             truncated_line = line[:max_line_length] + "..." if len(line) > max_line_length else line
-                            output.append(f"{line_num}:{truncated_line}")
-                        output.append("---[END]---")
+                            output.append(f"{prefix_to_use}{line_num}:{truncated_line}")
+                        output.append(f"{prefix_to_use}---[END]---")
                     else:
                         # Standard view with full formatting
                         # Add content header
-                        output.append(f"{content_prefix}┌{'─' * 70}")
-                        output.append(f"{content_prefix}│ FILE CONTENT: {item}")
-                        output.append(f"{content_prefix}├{'─' * 70}")
+                        output.append(f"{prefix_to_use}┌{'─' * 70}")
+                        output.append(f"{prefix_to_use}│ FILE CONTENT: {item}")
+                        output.append(f"{prefix_to_use}├{'─' * 70}")
                             
                         # Add content with line numbers
                         for line_num, line in enumerate(lines, 1):
                             if line_num > max_lines:
-                                output.append(f"{content_prefix}│ ... (truncated after {max_lines} lines, {len(lines)-max_lines} more lines)")
+                                output.append(f"{prefix_to_use}│ ... (truncated after {max_lines} lines, {len(lines)-max_lines} more lines)")
                                 break
                             truncated_line = line[:max_line_length] + "..." if len(line) > max_line_length else line
-                            output.append(f"{content_prefix}│ {line_num:4d} │ {truncated_line}")
+                            output.append(f"{prefix_to_use}│ {line_num:4d} │ {truncated_line}")
                             
                         # Add content footer
-                        output.append(f"{content_prefix}└{'─' * 70}")
+                        output.append(f"{prefix_to_use}└{'─' * 70}")
                 except Exception as e:
+                    # Make sure content_prefix is not None (safety check)
+                    prefix_to_use = content_prefix if content_prefix is not None else ""
                     if compact_view:
-                        output.append(f"---[ERROR: {str(e)}]---")
+                        output.append(f"{prefix_to_use}---[ERROR: {str(e)}]---")
                     else:
-                        output.append(f"{content_prefix}│ ERROR reading file: {str(e)}")
-                        output.append(f"{content_prefix}└{'─' * 70}")
+                        output.append(f"{prefix_to_use}│ ERROR reading file: {str(e)}")
+                        output.append(f"{prefix_to_use}└{'─' * 70}")
 
             return True
 
@@ -358,7 +323,11 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
             for item in items:
                 full_path = os.path.join(current_dir, item)
                 if os.path.isfile(full_path):
-                    if item not in blacklist_files and any(item.endswith(ext) for ext in extensions):
+                    # If in reference tracking mode, only include referenced files
+                    if reference_tracking_mode:
+                        if full_path in referenced_files and item not in blacklist_files and any(item.endswith(ext) for ext in extensions):
+                            files.append(item)
+                    elif item not in blacklist_files and any(item.endswith(ext) for ext in extensions):
                         files.append(item)
                 elif os.path.isdir(full_path) and item not in blacklist_folders:
                     dirs.append(item)
@@ -379,14 +348,18 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
             
             # Now process all files (just show file names, no content)
             for i, item in enumerate(files):
+                full_path = os.path.join(current_dir, item)
                 # Determine if this is the last item
                 is_last = (i == len(files) - 1)
                 
                 # Update prefix for file
                 file_prefix = prefix + ("└── " if is_last else "├── ")
                 
-                # Add file to tree (just the name, no details)
-                output.append(f"{file_prefix}📄 {item}")
+                # If in reference tracking mode, mark referenced files
+                if reference_tracking_mode and full_path in referenced_files:
+                    output.append(f"{file_prefix}📄 {item} [REFERENCED]")
+                else:
+                    output.append(f"{file_prefix}📄 {item}")
 
             return True
 
@@ -406,6 +379,24 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
         output.append("\nPrioritized Files (in order):")
         for i, file in enumerate(priority_files):
             output.append(f"  {i+1}. {file}")
+    
+    # Add reference tracking summary if enabled
+    if reference_tracking_mode:
+        output.append("\nREFERENCE TRACKING SUMMARY")
+        output.append("-" * 80)
+        output.append(f"Total referenced files: {len(referenced_files)}")
+        
+        # Add file extension statistics
+        extension_stats = {}
+        for file_path in referenced_files:
+            _, ext = os.path.splitext(file_path)
+            if ext:
+                extension_stats[ext] = extension_stats.get(ext, 0) + 1
+        
+        if extension_stats:
+            output.append("\nReferenced file types:")
+            for ext, count in sorted(extension_stats.items(), key=lambda x: x[1], reverse=True):
+                output.append(f"  {ext}: {count} files")
             
     output.append("\n" + "=" * 80 + "\n")
     output.append("DETAILED FILE TREE WITH CONTENTS")
@@ -420,7 +411,6 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
         return f"Error: {error}"
 
     return f"Text tree file generated successfully at {os.path.abspath(output_file)}"
-# Add this to file_tree_generator.py
 
 def export_as_html(output_lines, output_file):
     """
@@ -439,6 +429,7 @@ def export_as_html(output_lines, output_file):
                   '        .tree { white-space: pre; }',
                   '        .dir { color: #0066cc; font-weight: bold; }',
                   '        .file { color: #333; }',
+                  '        .referenced { color: #008800; font-weight: bold; }',
                   '        .content { margin-left: 20px; border-left: 1px solid #ccc; padding-left: 10px; }',
                   '        .content-header { color: #666; }',
                   '        .line-number { color: #999; margin-right: 10px; }',
@@ -453,6 +444,9 @@ def export_as_html(output_lines, output_file):
         if line.strip().startswith("📁"):
             # Directory line
             html_line = f'<div class="dir">{line.replace("<", "&lt;").replace(">", "&gt;")}</div>'
+        elif "[REFERENCED]" in line and line.strip().startswith("📄"):
+            # Referenced file line
+            html_line = f'<div class="referenced">{line.replace("<", "&lt;").replace(">", "&gt;")}</div>'
         elif line.strip().startswith("📄"):
             # File line
             html_line = f'<div class="file">{line.replace("<", "&lt;").replace(">", "&gt;")}</div>'
@@ -536,6 +530,12 @@ def export_as_markdown(output_lines, output_file):
             in_directory_section = False
             in_detailed_section = True
             continue
+        
+        if "REFERENCE TRACKING SUMMARY" in line:
+            md_output.append("## Reference Tracking Summary")
+            md_output.append("")
+            in_directory_section = False
+            continue
             
         if "=" * 10 in line or "-" * 10 in line:
             continue
@@ -555,7 +555,12 @@ def export_as_markdown(output_lines, output_file):
                 file_parts = line.strip().replace("📄 ", "").split(" (", 1)
                 file_name = file_parts[0]
                 file_info = f" ({file_parts[1]}" if len(file_parts) > 1 else ""
-                md_output.append(f"{spaces}- {file_name}{file_info}")
+                
+                # Check if it's a referenced file
+                if "[REFERENCED]" in line:
+                    md_output.append(f"{spaces}- **{file_name}{file_info}** (Referenced)")
+                else:
+                    md_output.append(f"{spaces}- {file_name}{file_info}")
                 
             elif "FILE CONTENT:" in line:
                 # Start of file content
@@ -577,6 +582,9 @@ def export_as_markdown(output_lines, output_file):
                 if len(parts) >= 3:
                     content = parts[2]
                     md_output.append(content)
+        else:
+            # Include other lines like reference summaries
+            md_output.append(line)
     
     with open(output_file, 'w', encoding='utf-8') as f:
         f.write('\n'.join(md_output))
@@ -603,7 +611,11 @@ def export_as_json(output_lines, output_file):
             "scan_date": "",
             "extensions": []
         },
-        "tree": {}
+        "tree": {},
+        "reference_tracking": {
+            "enabled": False,
+            "files": []
+        }
     }
     
     # Extract metadata
@@ -613,6 +625,8 @@ def export_as_json(output_lines, output_file):
         elif "Extensions:" in line:
             extensions = line.replace("Extensions:", "").strip()
             file_tree["metadata"]["extensions"] = [ext.strip() for ext in extensions.split(",")]
+        elif "Reference Tracking: Enabled" in line:
+            file_tree["reference_tracking"]["enabled"] = True
     
     # Process tree structure
     current_path = []
@@ -629,6 +643,10 @@ def export_as_json(output_lines, output_file):
             continue
             
         if not in_detailed_section:
+            # Try to extract reference tracking info
+            if "Total referenced files:" in line:
+                count = line.replace("Total referenced files:", "").strip()
+                file_tree["reference_tracking"]["count"] = int(count)
             continue
             
         if in_file_content:
@@ -671,12 +689,21 @@ def export_as_json(output_lines, output_file):
             file_name = file_parts[0]
             file_info = file_parts[1].rstrip(")") if len(file_parts) > 1 else ""
             
+            # Check if it's a referenced file
+            is_referenced = "[REFERENCED]" in line
+            
             # Add file to current node
             current_node[file_name] = {
                 "type": "file",
                 "info": file_info,
+                "referenced": is_referenced,
                 "content": ""
             }
+            
+            # Add to reference tracking list if referenced
+            if is_referenced:
+                file_path = "/".join(current_path + [file_name])
+                file_tree["reference_tracking"]["files"].append(file_path)
             
         elif "FILE CONTENT:" in line:
             # Start of file content

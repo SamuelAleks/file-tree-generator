@@ -262,15 +262,15 @@ class FileTreeGeneratorApp:
             root_dir = self.root_dir_var.get()
             output_file = self.output_file_var.get()
             export_format = self.export_format_var.get()
-    
+
             if not root_dir or not os.path.isdir(root_dir):
                 messagebox.showerror("Error", "Please select a valid root directory")
                 return
-        
+    
             if not output_file:
                 messagebox.showerror("Error", "Please specify an output file path")
                 return
-    
+
             # Ensure output file has the correct extension
             output_base, output_ext = os.path.splitext(output_file)
             if export_format == 'txt' and output_ext.lower() != '.txt':
@@ -281,41 +281,43 @@ class FileTreeGeneratorApp:
                 output_file = output_base + '.md'
             elif export_format == 'json' and output_ext.lower() != '.json':
                 output_file = output_base + '.json'
-    
+
             # Update output file path in UI
             self.output_file_var.set(output_file)
-    
+
             # Parse extensions
             extensions_str = self.extensions_var.get().strip()
             if not extensions_str:
                 messagebox.showerror("Error", "Please specify at least one file extension")
                 return
-        
-            extensions = set(ext if ext.startswith(".") else f".{ext}" for ext in extensions_str.split())
     
+            extensions = set(ext if ext.startswith(".") else f".{ext}" for ext in extensions_str.split())
+
             # Parse blacklists
             blacklist_folders = set(self.blacklist_folders_var.get().split())
             blacklist_files = set(self.blacklist_files_var.get().split())
-    
+
             # Parse priority lists
             priority_folders = [folder for folder in self.priority_folders_var.get().split() if folder]
             priority_files = [file for file in self.priority_files_var.get().split() if file]
-    
+
             self.log(f"Starting file tree generation from {root_dir}")
             self.log(f"Included extensions: {', '.join(extensions)}")
             self.log(f"Blacklisted folders: {', '.join(blacklist_folders)}")
             self.log(f"Blacklisted files: {', '.join(blacklist_files)}")
             self.log(f"Export format: {export_format}")
+    
+            # Initialize referenced_files to None (for non-reference tracking mode)
+            referenced_files = None
         
-            # Handle reference tracking if enabled - but do this separately
-            # from the file tree generation itself
+            # Handle reference tracking if enabled
             if self.reference_tracking_var.get():
                 if not self.selected_files:
                     messagebox.showerror("Error", "Please select at least one file for reference tracking")
                     return
-            
+        
                 self.log(f"Reference tracking enabled with {len(self.selected_files)} selected files")
-            
+        
                 # Determine reference depth
                 if self.unlimited_depth_var.get():
                     depth = float('inf')
@@ -323,34 +325,46 @@ class FileTreeGeneratorApp:
                 else:
                     depth = self.reference_depth_var.get()
                     self.log(f"Using reference depth of {depth}")
-            
+        
                 # Parse and analyze C# files
                 self.log("Analyzing C# references...")
                 reference_manager = ReferenceTrackingManager(root_dir, log_callback=self.log)
                 reference_manager.parse_directory()
-            
+        
                 # Find related files
                 referenced_files = reference_manager.find_related_files(self.selected_files, depth)
-            
+        
                 # Add reference summary to log
                 summary = reference_manager.generate_reference_summary(referenced_files)
                 self.log("\n" + summary)
-            
+        
                 # Create a file in the output directory with the referenced files
                 reference_list_file = output_base + "_references.txt"
                 with open(reference_list_file, 'w', encoding='utf-8') as f:
                     f.write("# Referenced Files\n\n")
                     for file_path in sorted(referenced_files):
                         f.write(f"- {os.path.relpath(file_path, root_dir)}\n")
-            
-                self.log(f"Saved list of referenced files to {reference_list_file}")
+                    
+                        # Add reference details if available
+                        referenced_by, references_to = reference_manager.get_reference_details(file_path)
+                        if referenced_by:
+                            f.write(f"  Referenced by ({len(referenced_by)}):\n")
+                            for ref in sorted(referenced_by)[:10]:  # Limit to top 10
+                                f.write(f"    - {os.path.relpath(ref, root_dir)}\n")
+                        if references_to:
+                            f.write(f"  References to ({len(references_to)}):\n")
+                            for ref in sorted(references_to)[:10]:  # Limit to top 10
+                                f.write(f"    - {os.path.relpath(ref, root_dir)}\n")
+                        f.write("\n")
         
+                self.log(f"Saved list of referenced files to {reference_list_file}")
+    
             # Create a temporary text output file
             temp_output = output_file
             if export_format != 'txt':
                 temp_output = output_file + '.temp.txt'
-    
-            # Generate file tree - with standard parameters
+
+            # Generate file tree - TEMPORARY FIX: Don't pass referenced_files since current function doesn't support it
             result = create_file_tree(
                 root_dir, 
                 extensions, 
@@ -362,32 +376,33 @@ class FileTreeGeneratorApp:
                 compact_view=self.compact_view_var.get(),
                 priority_folders=priority_folders,
                 priority_files=priority_files
+                # referenced_files parameter removed temporarily
             )
-    
+
             # Convert to desired format if needed
             if export_format != 'txt':
                 with open(temp_output, 'r', encoding='utf-8') as f:
                     output_lines = f.read().splitlines()
-        
+    
                 if export_format == 'html':
                     export_as_html(output_lines, output_file)
                 elif export_format == 'markdown':
                     export_as_markdown(output_lines, output_file)
                 elif export_format == 'json':
                     export_as_json(output_lines, output_file)
-        
+    
                 # Clean up temporary file
                 os.remove(temp_output)
-        
-                result = f"File tree generated successfully in {export_format.upper()} format at {os.path.abspath(output_file)}"
     
+                result = f"File tree generated successfully in {export_format.upper()} format at {os.path.abspath(output_file)}"
+
             self.log(result)
             messagebox.showinfo("Success", result)
-    
+
             # Ask if user wants to open the file
             if messagebox.askyesno("Open File", "Do you want to open the generated file?"):
                 self.open_file(output_file)
-        
+    
         except Exception as e:
             error_msg = f"Error: {str(e)}"
             self.log(error_msg)
