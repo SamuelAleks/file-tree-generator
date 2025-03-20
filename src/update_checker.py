@@ -7,7 +7,7 @@ import webbrowser
 import urllib.request
 import socket
 from packaging.version import Version as StrictVersion
-from src.version import VERSION
+from version import VERSION
 
 # Current version - update this when you release a new version
 CURRENT_VERSION = VERSION
