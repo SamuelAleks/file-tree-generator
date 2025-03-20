@@ -231,19 +231,17 @@ class FileSelector(tk.Toplevel):
         self.selection_var.set(f"{file_count} files selected")
     
     def invert_selection(self):
-        """Invert the current selection"""
+        """Invert the current selection more efficiently"""
         all_items = self.get_all_files()
         current_selection = self.tree.selection()
-        
-        # Deselect all items
-        for item_id in current_selection:
-            self.tree.selection_remove(item_id)
-        
-        # Select items that weren't previously selected
+    
+        # Select items that weren't previously selected and deselect those that were
         for item_id in all_items:
-            if item_id not in current_selection:
+            if item_id in current_selection:
+                self.tree.selection_remove(item_id)
+            else:
                 self.tree.selection_add(item_id)
-        
+    
         self.update_selection_count()
     
     def get_all_files(self):

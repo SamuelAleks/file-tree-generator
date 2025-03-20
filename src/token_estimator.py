@@ -3,6 +3,11 @@ Token estimation module for File Tree Generator.
 
 This module provides functionality to estimate token counts for different language models.
 It uses simple approximation methods that can be adjusted with model-specific factors.
+
+WARNING: Token estimations are based on simple heuristics and may not be accurate for all models 
+or content types. Use these estimates as a rough guide rather than exact counts. Different
+model versions may tokenize text differently, and special tokens or formatting can affect
+actual token usage.
 """
 
 import re

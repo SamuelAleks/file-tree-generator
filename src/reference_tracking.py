@@ -138,23 +138,25 @@ class ReferenceTrackingManager:
     
     def count_total_lines(self, file_paths):
         """
-        Count total lines in the given files
-        
+        Count total lines in the given files with improved memory efficiency.
+    
         Args:
             file_paths: List of file paths
-            
+        
         Returns:
             Total line count, total non-blank lines
         """
         total_lines = 0
         total_non_blank = 0
-        
+    
         for file_path in file_paths:
             try:
+                # Use a streaming approach to count lines without loading the entire file
                 with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
-                    lines = f.readlines()
-                    total_lines += len(lines)
-                    total_non_blank += sum(1 for line in lines if line.strip())
+                    for line in f:
+                        total_lines += 1
+                        if line.strip():
+                            total_non_blank += 1
             except Exception:
                 # Skip files we can't read
                 pass

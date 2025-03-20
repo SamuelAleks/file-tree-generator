@@ -544,7 +544,7 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
                 file_prefix = prefix + ("└── " if is_last else "├── ")
                 
                 # If in reference tracking mode, mark referenced files
-                if reference_tracking_mode and full_path in referenced_files:
+                if reference_tracking_mode and referenced_files is not None and full_path in referenced_files:
                     output.append(f"{file_prefix}📄 {item} [REFERENCED]")
                 else:
                     output.append(f"{file_prefix}📄 {item}")
