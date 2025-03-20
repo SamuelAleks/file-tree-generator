@@ -486,109 +486,47 @@ class VisualizationManager:
     def prompt_for_method_selection(self, file_path, methods):
         """
         Show a dialog to select a method from the file.
-        
+    
         Args:
             file_path: Path to the file
             methods: List of method names
-            
+        
         Returns:
             Selected method name or None if cancelled
         """
-        # Create a method selection dialog
-        dialog = tk.Toplevel(self.app.root)
-        dialog.title("Select Method")
-        dialog.transient(self.app.root)
-        dialog.grab_set()
-        dialog.geometry("400x300")
+        try:
+            # Use the enhanced method selector dialog
+            from MethodSelectorDialog import MethodSelectorDialog
         
-        # Make dialog modal
-        dialog.focus_set()
+            # Store result for returning after dialog closes
+            result = [None]
         
-        # Create dialog content
-        ttk.Label(dialog, text="Select a method to visualize:").pack(pady=(10, 5))
+            # Callback function to receive the selected method
+            def on_method_selected(method_name):
+                result[0] = method_name
         
-        # Method list with scrollbar
-        frame = ttk.Frame(dialog)
-        frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+            # Create and show dialog
+            dialog = MethodSelectorDialog(
+                self.app.root,
+                file_path,
+                self.reference_tracker,
+                callback=on_method_selected
+            )
         
-        # Group methods by class if possible
-        methods_by_class = {}
+            # Wait for dialog to close
+            self.app.root.wait_window(dialog)
         
-        if hasattr(self.reference_tracker.tracker, 'get_methods_by_class'):
-            methods_by_class = self.reference_tracker.tracker.get_methods_by_class(file_path)
+            return result[0]
         
-        # If no class grouping available, put all methods in one list
-        if not methods_by_class:
-            methods_by_class = {'': methods}
+        except ImportError:
+            # Fall back to simple selection if dialog is not available
+            from tkinter import simpledialog
         
-        # Create treeview for methods
-        tree = ttk.Treeview(frame)
-        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        
-        # Add scrollbar
-        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        tree.configure(yscrollcommand=scrollbar.set)
-        
-        # Configure tree
-        tree["columns"] = ("signature",)
-        tree.column("#0", width=150, minwidth=150)
-        tree.column("signature", width=200, minwidth=200)
-        tree.heading("#0", text="Method")
-        tree.heading("signature", text="Signature")
-        
-        # Add methods to tree, grouped by class
-        for class_name, class_methods in methods_by_class.items():
-            if class_name:
-                class_node = tree.insert("", "end", text=class_name, open=True)
-            else:
-                class_node = ""
-                
-            for method in class_methods:
-                # Get method signature if available
-                signature = ""
-                if hasattr(self.reference_tracker.tracker, 'get_method_signature'):
-                    sig_info = self.reference_tracker.tracker.get_method_signature(file_path, method)
-                    if sig_info:
-                        signature = sig_info.get('signature', '')
-                
-                tree.insert(class_node, "end", text=method, values=(signature,))
-        
-        # Buttons
-        button_frame = ttk.Frame(dialog)
-        button_frame.pack(fill=tk.X, pady=10)
-        
-        result = [None]  # Non-local variable for result
-        
-        # Set result and close dialog
-        def on_select():
-            selection = tree.selection()
-            if selection:
-                # Get the method name from the tree item
-                item = tree.item(selection[0])
-                # If it's not a class node, it's a method
-                if item["values"]:  # Methods have signature values
-                    result[0] = item["text"]
-                    dialog.destroy()
-                else:
-                    messagebox.showinfo("Selection", "Please select a method, not a class")
-            else:
-                messagebox.showinfo("Selection", "Please select a method")
-        
-        # Close dialog without selection
-        def on_cancel():
-            dialog.destroy()
-        
-        ttk.Button(button_frame, text="Select", command=on_select).pack(side=tk.RIGHT, padx=10)
-        ttk.Button(button_frame, text="Cancel", command=on_cancel).pack(side=tk.RIGHT)
-        
-        # Handle double-click on tree item
-        tree.bind("<Double-1>", lambda e: on_select())
-        
-        # Wait for dialog to close
-        self.app.root.wait_window(dialog)
-        
-        return result[0]
+            return simpledialog.askstring(
+                "Select Method",
+                f"Enter method name to visualize from {os.path.basename(file_path)}:",
+                parent=self.app.root
+            )
     
     def show_reference_summary(self, related_files):
         """

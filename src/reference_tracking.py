@@ -82,14 +82,14 @@ class ReferenceTrackingManager:
     
         Args:
             file_path: Path to the file
-        
+    
         Returns:
             List of method names
         """
-        if not self.files_parsed:
-            self.parse_directory()
+        if file_path not in self.file_info:
+            return []
     
-        return self.tracker.file_info.get(file_path, {}).get('methods', [])
+        return self.file_info[file_path].get('methods', [])
 
     def find_related_files(self, start_files, depth=float('inf'), ignore_xaml=False):
         """

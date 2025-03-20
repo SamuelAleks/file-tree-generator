@@ -54,59 +54,59 @@ class CSharpReferenceTracker:
     def parse_method_references(self, content, file_path):
         """
         Parse method calls and definitions in the content.
-    
+
         This function analyzes the C# code to identify method definitions and calls,
         building a graph of method-level references.
-    
+
         Args:
             content: The file content to parse
             file_path: Path to the file being parsed
-        
+    
         Returns:
             A dictionary mapping method names to their references
         """
         # Clean content for parsing
         clean_content = self._remove_comments_and_strings(content)
-    
+
         # Get namespace and classes in this file
         namespace = self._extract_namespace(clean_content)
         classes = self._extract_type_declarations(clean_content)
-    
+
         # Track methods defined and called in this file
         method_definitions = {}
         method_calls = []
-    
+
         # Extract method definitions
         for match in self.patterns['method_decl'].finditer(clean_content):
             method_name = match.group(1)
-        
+    
             # Skip keywords that might be incorrectly matched
             if method_name in ['if', 'while', 'for', 'foreach', 'switch', 'using', 'try', 'catch']:
                 continue
-            
+        
             # Get method position
             start_pos = match.start()
             line_number = clean_content[:start_pos].count('\n') + 1
-        
+    
             # Find method body if using braces
             if '{' in match.group():
                 # Find matching closing brace
                 brace_count = 1
                 end_pos = match.end()
-            
+        
                 while brace_count > 0 and end_pos < len(clean_content):
                     if clean_content[end_pos] == '{':
                         brace_count += 1
                     elif clean_content[end_pos] == '}':
                         brace_count -= 1
                     end_pos += 1
-            
+        
                 method_body = clean_content[start_pos:end_pos]
             else:
                 # Expression-bodied method
                 semicolon_pos = clean_content.find(';', match.end())
                 method_body = clean_content[start_pos:semicolon_pos+1]
-        
+    
             # Store method definition with its body
             method_definitions[method_name] = {
                 'name': method_name,
@@ -116,16 +116,16 @@ class CSharpReferenceTracker:
                 'namespace': namespace,
                 'calls': []  # Will be populated with method calls
             }
-        
+    
             # Find method calls within this method
             for call_match in self.patterns['method_call'].finditer(method_body):
                 object_name = call_match.group(1)
                 called_method = call_match.group(2)
-            
+        
                 # Skip "this" references and common C# patterns
                 if object_name in ['this', 'base', 'var', 'if', 'for', 'while']:
                     continue
-                
+            
                 # Record this call
                 call_line = line_number + method_body[:call_match.start()].count('\n')
                 method_calls.append({
@@ -134,19 +134,19 @@ class CSharpReferenceTracker:
                     'target_method': called_method,
                     'line': call_line
                 })
-            
+        
                 # Add to the calls list for this method
                 method_definitions[method_name]['calls'].append({
                     'object': object_name,
                     'method': called_method,
                     'line': call_line
                 })
-    
+
         # Store method information in file_info
         if file_path in self.file_info:
             self.file_info[file_path]['method_definitions'] = method_definitions
             self.file_info[file_path]['method_calls'] = method_calls
-    
+
         return method_definitions
 
     def get_method_signature(self, file_path, method_name):
@@ -214,28 +214,28 @@ class CSharpReferenceTracker:
     def get_methods_by_class(self, file_path):
         """
         Group methods by their class for better organization.
-    
+
         Args:
             file_path: Path to the file to analyze
-        
+    
         Returns:
             Dictionary mapping class names to lists of methods
         """
         if file_path not in self.file_info:
             return {}
-        
+    
         # Get all classes in the file
         classes = self.file_info[file_path].get('types', [])
-    
+
         # Get all methods in the file
         methods = self.file_info[file_path].get('methods', [])
-    
+
         # Get method definitions if available
         method_definitions = self.file_info[file_path].get('method_definitions', {})
-    
+
         # Mapping of classes to methods
         class_methods = {cls: [] for cls in classes}
-    
+
         # If we have detailed method definitions, use them
         if method_definitions:
             for method_name, definition in method_definitions.items():
@@ -255,12 +255,12 @@ class CSharpReferenceTracker:
             # the code more carefully to determine which methods belong to which classes
             if not classes:
                 classes = ['']  # No classes defined
-            
+        
             # Distribute methods across classes
             for i, method in enumerate(methods):
                 class_name = classes[i % len(classes)]
                 class_methods[class_name].append(method)
-    
+
         return class_methods
 
     def trace_method_call_chain(self, file_path, method_name, max_depth=3):
@@ -362,29 +362,28 @@ class CSharpReferenceTracker:
         # Otherwise, we can't determine the file with confidence
         return None
 
-    
     def get_method_details(self, file_path, method_name=None):
         """
         Get method details for a specific file or method.
-    
+
         Args:
             file_path: Path to the source file
             method_name: Optional specific method name
-        
+    
         Returns:
             Dictionary of method information
         """
         if file_path not in self.file_info:
             return {}
-        
+    
         file_data = self.file_info[file_path]
         methods_info = {}
-    
+
         # Extract content for method analysis
         content = file_data.get('raw_content', '')
         if not content:
             return {}
-    
+
         # Find all methods or a specific method
         if method_name:
             # Find a specific method
@@ -394,41 +393,41 @@ class CSharpReferenceTracker:
         else:
             # Get all methods in the file
             methods = file_data.get('methods', [])
-    
+
         # Extract details for each method
         for method in methods:
             # Find method in content
             pattern = r'(?:public|private|protected|internal)\s+(?:(?:virtual|override|abstract|static|async)\s+)*(?:[\w<>[\],\s]+\s+)' + \
                       re.escape(method) + r'\s*\(([^)]*)\)(?:\s*(?:where\s+.*?)?(?:{|=>))'
             match = re.search(pattern, content)
-        
+    
             if match:
                 # Find method body
                 start_pos = match.start()
-            
+        
                 # Find method body if using braces
                 if '{' in match.group():
                     # Find matching closing brace
                     brace_count = 1
                     end_pos = match.end()
-                
+            
                     while brace_count > 0 and end_pos < len(content):
                         if content[end_pos] == '{':
                             brace_count += 1
                         elif content[end_pos] == '}':
                             brace_count -= 1
                         end_pos += 1
-                
+            
                     method_content = content[start_pos:end_pos]
                 else:
                     # Expression-bodied method
                     semicolon_pos = content.find(';', match.end())
                     method_content = content[start_pos:semicolon_pos+1]
-            
+        
                 # Extract line numbers
                 start_line = content[:start_pos].count('\n') + 1
                 end_line = start_line + method_content.count('\n')
-            
+        
                 # Find method calls within this method
                 calls = []
                 call_pattern = r'(\w+)\.(\w+)\s*\('
@@ -436,7 +435,7 @@ class CSharpReferenceTracker:
                     obj_name = call_match.group(1)
                     called_method = call_match.group(2)
                     calls.append((obj_name, called_method))
-            
+        
                 # Create method info
                 methods_info[method] = {
                     'name': method,
@@ -447,44 +446,44 @@ class CSharpReferenceTracker:
                     'calls': calls,
                     'signature': match.group(0)
                 }
-    
+
         return methods_info
 
     def get_method_references(self, file_path, method_name):
         """
         Find all references to a specific method.
-    
+
         Args:
             file_path: Path to the file containing the method
             method_name: Name of the method to find references for
-        
+    
         Returns:
             (incoming_refs, outgoing_refs) - Lists of reference information
         """
         incoming_refs = []  # Methods that call this method
         outgoing_refs = []  # Methods that this method calls
-    
+
         # Ensure the file exists in our info
         if file_path not in self.file_info:
             return [], []
-    
+
         # Get containing class/namespace info
         class_name = None
         namespace = self.file_info[file_path].get('namespace', '')
-    
+
         # Find containing class (assuming method is in a class)
         for type_name in self.file_info[file_path].get('types', []):
             # Simple heuristic - in a more thorough solution, we would check method scope
             class_name = type_name
             break
-    
+
         # Create qualified name patterns to search for
         qualified_patterns = []
         if class_name:
             qualified_patterns.append(f"{class_name}.{method_name}")
             if namespace:
                 qualified_patterns.append(f"{namespace}.{class_name}.{method_name}")
-    
+
         # Look for references in all files
         for source_file, info in self.file_info.items():
             # Skip the current file for incoming references
@@ -502,7 +501,7 @@ class CSharpReferenceTracker:
                             'line': 0  # Would need more analysis to find exact line
                         })
                 continue
-            
+        
             # Look for direct method calls to our target
             for ref_type, *ref_args in info.get('references', []):
                 if ref_type == 'method_call':
@@ -515,7 +514,7 @@ class CSharpReferenceTracker:
                             for method_name_in_file, method_details in self.get_method_details(source_file).items():
                                 if any(call[1] == method_name for call in method_details.get('calls', [])):
                                     calling_methods.append(method_name_in_file)
-                        
+                    
                             # If we found specific calling methods, add them
                             if calling_methods:
                                 for calling_method in calling_methods:
@@ -533,7 +532,7 @@ class CSharpReferenceTracker:
                                     'file': source_file,
                                     'line': 0
                                 })
-    
+
         return incoming_refs, outgoing_refs
 
     def _find_likely_file_for_class(self, class_name):
