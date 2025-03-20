@@ -37,3 +37,4 @@ installer/
 *.swo
 /.vs
 /src/file_structure.txt
+/src/test_output.txt
