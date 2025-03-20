@@ -38,3 +38,4 @@ installer/
 /.vs
 /src/file_structure.txt
 /src/test_output.txt
+/version.iss
