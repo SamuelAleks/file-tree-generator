@@ -19,6 +19,11 @@ from file_tree_generator import (
 from config_utils import load_config, save_config
 import token_estimator
 from update_checker import check_updates_at_startup, add_update_check_to_menu, CURRENT_VERSION, GITHUB_REPO
+try:
+    from code_visualization import InteractiveCanvasVisualizer as CodeVisualizer
+    VISUALIZATION_AVAILABLE = True
+except ImportError:
+    VISUALIZATION_AVAILABLE = False
 
 class FileTreeGeneratorApp:
     # Reference tracker for reference tracking export functionality
@@ -344,11 +349,35 @@ class FileTreeGeneratorApp:
     def update_visualization_menu(self):
         """Update visualization menu state based on current settings"""
         if hasattr(self, 'visualization_menu'):
-            state = "normal" if self.reference_tracking_var.get() else "disabled"
+            # First check if visualization is available
+            viz_available = VISUALIZATION_AVAILABLE
+        
+            # Then check if reference tracking is enabled
+            ref_tracking = self.reference_tracking_var.get()
+        
+            # Determine state for visualization commands
+            if viz_available and ref_tracking:
+                state = "normal"
+            else:
+                state = "disabled"
+            
             try:
                 self.visualization_menu.entryconfig("File References Graph", state=state)
                 self.visualization_menu.entryconfig("Method References Graph", state=state)
                 self.visualization_menu.entryconfig("Class Hierarchy Graph", state=state)
+            
+                # Always keep the install option enabled
+                self.visualization_menu.entryconfig("Install Visualization Libraries", state="normal")
+            
+                # Update help option if it exists
+                try:
+                    if viz_available:
+                        self.visualization_menu.entryconfig("Visualization Help", state="normal")
+                    else:
+                        self.visualization_menu.entryconfig("Visualization Help", state="disabled")
+                except:
+                    pass  # Help option may not exist
+                
             except:
                 pass  # Menu items may not exist
 
@@ -710,25 +739,97 @@ class FileTreeGeneratorApp:
         # Add update check to Help menu
         add_update_check_to_menu(help_menu)
 
+    def show_visualization_help(self):
+        """Show help for the visualization features"""
+        help_window = tk.Toplevel(self.root)
+        help_window.title("Visualization Help")
+        help_window.geometry("600x500")
+        help_window.transient(self.root)
+        help_window.grab_set()
+    
+        # Create scrollable text area
+        text_frame = ttk.Frame(help_window, padding=10)
+        text_frame.pack(fill=tk.BOTH, expand=True)
+    
+        help_text = ScrolledText(text_frame, wrap=tk.WORD)
+        help_text.pack(fill=tk.BOTH, expand=True)
+        help_text.insert(tk.INSERT, """
+    Interactive Graph Visualization Help
+
+    The code visualization tool provides an interactive canvas for exploring code relationships.
+
+    VISUALIZATION TYPES:
+    1. File References - Shows how files reference each other
+    2. Method References - Shows how methods call each other
+    3. Class Hierarchy - Shows inheritance relationships between classes
+
+    INTERACTION:
+    - Left Click: Select a node
+    - Left Click + Drag: Move a node
+    - Right Click + Drag: Pan the view
+    - Mouse Wheel: Zoom in/out
+    - Right Click: Show context menu
+
+    CONTEXT MENU OPTIONS:
+    - Run Layout: Re-run the force-directed layout algorithm
+    - Reset View: Reset zoom and pan to the default
+    - Center View: Center and scale the graph to fit the window
+    - Show/Hide All Node Labels: Control label visibility
+
+    NODE COLORS:
+    - Gold: Selected or focus nodes
+    - Light Blue: C# files/methods/classes
+    - Light Green: XAML files
+    - Gray: Other file types
+
+    TOOLTIPS:
+    - Hover over nodes to see detailed information
+
+    EXPORTING:
+    - Use the "Export as PNG" button to save a screenshot
+    - The exported image will include the current view with all positions
+
+    TIPS:
+    - Double click a node to see its details
+    - If the graph is too cluttered, try dragging nodes apart
+    - For large graphs, use the search function to find specific items
+    - Use the center view option if nodes get moved off-screen
+    """)
+        help_text.config(state=tk.DISABLED)
+    
+        # Close button
+        ttk.Button(help_window, text="Close", command=help_window.destroy).pack(pady=10)
+
     def create_visualization_menu(self):
         """Create visualization menu items for the GUI"""
         # Add visualization to main menu
         visualization_menu = Menu(self.menubar, tearoff=0)
         self.menubar.add_cascade(label="Visualization", menu=visualization_menu)
     
-        # Add visualization options - initially all disabled, will be updated later
+        # Check if visualization is available
+        viz_state = "normal" if VISUALIZATION_AVAILABLE else "disabled"
+    
+        # Add visualization options - initial state depends on availability
         visualization_menu.add_command(label="File References Graph", 
                                      command=self.show_file_reference_graph,
-                                     state="disabled")
+                                     state="disabled")  # Will be updated by update_visualization_menu
         visualization_menu.add_command(label="Method References Graph", 
                                      command=self.show_method_reference_graph,
-                                     state="disabled")
+                                     state="disabled")  # Will be updated by update_visualization_menu
         visualization_menu.add_command(label="Class Hierarchy Graph", 
                                      command=self.show_class_hierarchy_graph,
-                                     state="disabled")
+                                     state="disabled")  # Will be updated by update_visualization_menu
         visualization_menu.add_separator()
+    
+        # Always enable the installation option
         visualization_menu.add_command(label="Install Visualization Libraries", 
                                      command=self.install_visualization_libraries)
+    
+        # If visualization is available, add help option
+        if VISUALIZATION_AVAILABLE:
+            visualization_menu.add_separator()
+            visualization_menu.add_command(label="Visualization Help", 
+                                         command=self.show_visualization_help)
     
         # Store reference to the visualization menu for later updates
         self.visualization_menu = visualization_menu
@@ -801,11 +902,16 @@ class FileTreeGeneratorApp:
                 return False
         return True  # Reference tracker already exists
     
+
+    # Replace the show_file_reference_graph method with:
     def show_file_reference_graph(self):
         """Show file reference graph visualization"""
         try:
-            # Import here to avoid errors if visualization is not available
-            from code_visualization import CodeVisualizer
+            # Check if visualization is available
+            if not VISUALIZATION_AVAILABLE:
+                messagebox.showerror("Error", 
+                                 "Visualization module not found. Install required libraries.")
+                return
         
             # Check if reference tracking is enabled
             if not self.reference_tracking_var.get():
@@ -839,18 +945,18 @@ class FileTreeGeneratorApp:
             else:
                 messagebox.showerror("Error", "Failed to create file reference graph.")
             
-        except ImportError:
-            messagebox.showerror("Error", 
-                               "Visualization libraries not found. Use 'Install Visualization Libraries' option.")
         except Exception as e:
+            self.log(f"Error visualizing file references: {str(e)}")
             messagebox.showerror("Error", f"Error visualizing file references: {str(e)}")
-            self.log(f"Error visualizing file references: {str(e)}")  # Add logging for debugging
 
     def show_method_reference_graph(self):
         """Show method reference graph visualization"""
         try:
-            # Import here to avoid errors if visualization is not available
-            from code_visualization import CodeVisualizer
+            # Check if visualization is available
+            if not VISUALIZATION_AVAILABLE:
+                messagebox.showerror("Error", 
+                                   "Visualization module not found. Install required libraries.")
+                return
         
             # Check if reference tracking is enabled
             if not self.reference_tracking_var.get():
@@ -991,9 +1097,6 @@ class FileTreeGeneratorApp:
             y = (select_dialog.winfo_screenheight() // 2) - (height // 2)
             select_dialog.geometry(f'{width}x{height}+{x}+{y}')
     
-        except ImportError:
-            messagebox.showerror("Error", 
-                               "Visualization libraries not found. Use 'Install Visualization Libraries' option.")
         except Exception as e:
             self.log(f"Error in show_method_reference_graph: {str(e)}")
             messagebox.showerror("Error", f"Error visualizing method references: {str(e)}")
@@ -1001,8 +1104,11 @@ class FileTreeGeneratorApp:
     def show_class_hierarchy_graph(self):
         """Show class hierarchy visualization"""
         try:
-            # Import here to avoid errors if visualization is not available
-            from code_visualization import CodeVisualizer
+            # Check if visualization is available
+            if not VISUALIZATION_AVAILABLE:
+                messagebox.showerror("Error", 
+                                   "Visualization module not found. Install required libraries.")
+                return
         
             # Check if reference tracking is enabled
             if not self.reference_tracking_var.get():
@@ -1132,9 +1238,6 @@ class FileTreeGeneratorApp:
             y = (select_dialog.winfo_screenheight() // 2) - (height // 2)
             select_dialog.geometry(f'{width}x{height}+{x}+{y}')
     
-        except ImportError:
-            messagebox.showerror("Error", 
-                               "Visualization libraries not found. Use 'Install Visualization Libraries' option.")
         except Exception as e:
             self.log(f"Error in show_class_hierarchy_graph: {str(e)}")
             messagebox.showerror("Error", f"Error visualizing class hierarchy: {str(e)}")
@@ -1145,18 +1248,65 @@ class FileTreeGeneratorApp:
             import subprocess
             import sys
         
-            self.log("Installing visualization libraries (networkx, matplotlib)...")
+            self.log("Installing visualization libraries...")
         
-            # Run pip install
-            python_exe = sys.executable
-            subprocess.check_call([python_exe, "-m", "pip", "install", "networkx", "matplotlib"])
+            # Create a dialog to show progress
+            progress_dialog = tk.Toplevel(self.root)
+            progress_dialog.title("Installing Libraries")
+            progress_dialog.geometry("400x150")
+            progress_dialog.transient(self.root)
+            progress_dialog.grab_set()
         
-            self.log("Libraries installed successfully. Please restart the application.")
-            messagebox.showinfo("Success", 
-                              "Visualization libraries installed successfully.\n"
-                              "Please restart the application to use visualization features.")
+            # Add progress message
+            ttk.Label(progress_dialog, text="Installing required libraries...\nThis may take a few moments.", 
+                     padding=20).pack(pady=10)
+        
+            # Add progress bar
+            progress = ttk.Progressbar(progress_dialog, mode='indeterminate')
+            progress.pack(fill=tk.X, padx=20, pady=10)
+            progress.start()
+        
+            # Function to run installation in background
+            def run_installation():
+                try:
+                    # Run pip install
+                    python_exe = sys.executable
+                
+                    # Only install what we need (don't include matplotlib and networkx anymore)
+                    subprocess.check_call([python_exe, "-m", "pip", "install", "pillow"])
+                
+                    # Update progress dialog
+                    progress.stop()
+                    progress_dialog.destroy()
+                
+                    # Show success message
+                    self.log("Libraries installed successfully. Please restart the application.")
+                    messagebox.showinfo("Success", 
+                                      "Visualization libraries installed successfully.\n"
+                                      "Please restart the application to use visualization features.")
+                
+                    # Make the module available globally
+                    global VISUALIZATION_AVAILABLE
+                    VISUALIZATION_AVAILABLE = True
+                
+                except Exception as e:
+                    error_msg = f"Error installing libraries: {str(e)}"
+                    self.log(error_msg)
+                
+                    # Update progress dialog
+                    progress.stop()
+                    progress_dialog.destroy()
+                
+                    # Show error message
+                    messagebox.showerror("Error", error_msg)
+        
+            # Run installation in a separate thread
+            import threading
+            install_thread = threading.Thread(target=run_installation, daemon=True)
+            install_thread.start()
+        
         except Exception as e:
-            error_msg = f"Error installing libraries: {str(e)}"
+            error_msg = f"Error setting up installation: {str(e)}"
             self.log(error_msg)
             messagebox.showerror("Error", error_msg)
 

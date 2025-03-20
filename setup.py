@@ -5,11 +5,14 @@ setup(
     name="file-tree-generator",
     version=VERSION,
     packages=find_packages(),
-    install_requires=[],
+    install_requires=[
+        "pygments",
+        "pillow",  # Added for visualization capabilities
+    ],
     author="Paape Companies",
     author_email="contact@website.com",
-    description="Generate visual text representation of directory trees",
-    keywords="file, directory, tree, visualization",
+    description="Generate visual text representation of directory trees with code visualization",
+    keywords="file, directory, tree, visualization, code, references",
     url="https://github.com/SamuelAleks/file-tree-generator",
     classifiers=[
         "Programming Language :: Python :: 3",
