@@ -32,7 +32,7 @@ class FileTreeGeneratorApp:
         # Load saved configuration
         self.config = load_config()
 
-        # Create menu
+        # Create menu (all visualization items initially disabled)
         self.create_menu()
     
         # Create main frame
@@ -310,6 +310,13 @@ class FileTreeGeneratorApp:
         self.log_text = ScrolledText(log_frame, wrap=tk.WORD, height=10)
         self.log_text.pack(fill=tk.BOTH, expand=True)
         self.log_text.config(state=tk.DISABLED)
+        # Initialize reference tracking state
+        self.selected_files = []
+        self.toggle_reference_options()
+        self.toggle_depth_spinner()
+    
+        # Update visualization menu state now that all variables are initialized
+        self.update_visualization_menu()
     
         # Check for updates at startup (non-blocking)
         check_updates_at_startup(self.root)
@@ -332,6 +339,18 @@ class FileTreeGeneratorApp:
             
         widget.bind("<Enter>", enter)
         widget.bind("<Leave>", leave)
+
+    
+    def update_visualization_menu(self):
+        """Update visualization menu state based on current settings"""
+        if hasattr(self, 'visualization_menu'):
+            state = "normal" if self.reference_tracking_var.get() else "disabled"
+            try:
+                self.visualization_menu.entryconfig("File References Graph", state=state)
+                self.visualization_menu.entryconfig("Method References Graph", state=state)
+                self.visualization_menu.entryconfig("Class Hierarchy Graph", state=state)
+            except:
+                pass  # Menu items may not exist
 
     def toggle_efficiency_options(self):
         """Toggle various options based on efficiency settings"""
@@ -680,6 +699,9 @@ class FileTreeGeneratorApp:
         menubar.add_cascade(label="Settings", menu=settings_menu)
         settings_menu.add_command(label="Save as Default", command=self.save_settings)
     
+        # Add visualization menu
+        self.create_visualization_menu()
+    
         # Help menu
         help_menu = Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Help", menu=help_menu)
@@ -687,6 +709,29 @@ class FileTreeGeneratorApp:
     
         # Add update check to Help menu
         add_update_check_to_menu(help_menu)
+
+    def create_visualization_menu(self):
+        """Create visualization menu items for the GUI"""
+        # Add visualization to main menu
+        visualization_menu = Menu(self.menubar, tearoff=0)
+        self.menubar.add_cascade(label="Visualization", menu=visualization_menu)
+    
+        # Add visualization options - initially all disabled, will be updated later
+        visualization_menu.add_command(label="File References Graph", 
+                                     command=self.show_file_reference_graph,
+                                     state="disabled")
+        visualization_menu.add_command(label="Method References Graph", 
+                                     command=self.show_method_reference_graph,
+                                     state="disabled")
+        visualization_menu.add_command(label="Class Hierarchy Graph", 
+                                     command=self.show_class_hierarchy_graph,
+                                     state="disabled")
+        visualization_menu.add_separator()
+        visualization_menu.add_command(label="Install Visualization Libraries", 
+                                     command=self.install_visualization_libraries)
+    
+        # Store reference to the visualization menu for later updates
+        self.visualization_menu = visualization_menu
 
     def toggle_reference_options(self):
         """Enable or disable reference tracking options based on checkbox"""
@@ -699,16 +744,16 @@ class FileTreeGeneratorApp:
                 self.depth_spinbox.configure(state="disabled")
             else:
                 self.depth_spinbox.configure(state=state)
-            
+        
         if hasattr(self, 'unlimited_depth_check'):
             self.unlimited_depth_check.configure(state=state)
-        
+    
         if hasattr(self, 'ignore_xaml_check'):
             self.ignore_xaml_check.configure(state=state)
-        
+    
         if hasattr(self, 'select_files_button'):
             self.select_files_button.configure(state=state)
-        
+    
         # Update selected files label state
         for child in self.root.winfo_children():
             if isinstance(child, ttk.LabelFrame) and "Reference Tracking" in child["text"]:
@@ -719,6 +764,401 @@ class FileTreeGeneratorApp:
                                 grandchild.configure(state=state)
                         except:
                             pass
+                        
+        # Update visualization menu
+        self.update_visualization_menu()
+
+    def ensure_reference_tracker(self):
+        """
+        Ensures the reference tracker is initialized before visualization.
+        Returns True if successful, False if failed.
+        """
+        if self.reference_tracker is None:
+            try:
+                root_dir = self.root_dir_var.get()
+                if not root_dir or not os.path.isdir(root_dir):
+                    messagebox.showerror("Error", "Please select a valid root directory first")
+                    return False
+                
+                if not self.selected_files:
+                    messagebox.showerror("Error", "Please select at least one file for reference tracking")
+                    return False
+                
+                # Initialize reference tracker
+                self.log("Initializing reference tracking...")
+                reference_manager = ReferenceTrackingManager(root_dir, log_callback=self.log)
+                # Parse the directory (this may take some time for large projects)
+                self.log("Parsing directory structure...")
+                files_parsed = reference_manager.parse_directory()
+                self.log(f"Parsed {files_parsed} files")
+            
+                # Store the reference manager
+                self.reference_tracker = reference_manager
+                return True
+            except Exception as e:
+                self.log(f"Error initializing reference tracker: {str(e)}")
+                messagebox.showerror("Error", f"Could not initialize reference tracking: {str(e)}")
+                return False
+        return True  # Reference tracker already exists
+    
+    def show_file_reference_graph(self):
+        """Show file reference graph visualization"""
+        try:
+            # Import here to avoid errors if visualization is not available
+            from code_visualization import CodeVisualizer
+        
+            # Check if reference tracking is enabled
+            if not self.reference_tracking_var.get():
+                messagebox.showinfo("Information", "Please enable reference tracking first.")
+                return
+            
+            if not self.selected_files:
+                messagebox.showinfo("Information", "Please select at least one file to visualize.")
+                return
+            
+            # Ensure reference tracker is initialized
+            if not self.ensure_reference_tracker():
+                return
+            
+            # Create visualizer
+            visualizer = CodeVisualizer(self.reference_tracker, self.log)
+        
+            # Determine reference depth
+            if self.unlimited_depth_var.get():
+                depth = float('inf')
+            else:
+                depth = self.reference_depth_var.get()
+            
+            # Create graph
+            self.log("Generating file reference graph...")
+            graph = visualizer.create_file_reference_graph(self.selected_files, max_depth=depth)
+        
+            if graph:
+                # Show visualization
+                visualizer.visualize_graph(graph, "File Reference Graph", self.root)
+            else:
+                messagebox.showerror("Error", "Failed to create file reference graph.")
+            
+        except ImportError:
+            messagebox.showerror("Error", 
+                               "Visualization libraries not found. Use 'Install Visualization Libraries' option.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Error visualizing file references: {str(e)}")
+            self.log(f"Error visualizing file references: {str(e)}")  # Add logging for debugging
+
+    def show_method_reference_graph(self):
+        """Show method reference graph visualization"""
+        try:
+            # Import here to avoid errors if visualization is not available
+            from code_visualization import CodeVisualizer
+        
+            # Check if reference tracking is enabled
+            if not self.reference_tracking_var.get():
+                messagebox.showinfo("Information", "Please enable reference tracking first.")
+                return
+            
+            # Ensure reference tracker is initialized
+            if not self.ensure_reference_tracker():
+                return
+            
+            # Create dialog to select a file and method
+            select_dialog = tk.Toplevel(self.root)
+            select_dialog.title("Select File and Method")
+            select_dialog.geometry("600x400")
+            select_dialog.transient(self.root)
+            select_dialog.grab_set()
+        
+            # File selection
+            file_frame = ttk.LabelFrame(select_dialog, text="Select File", padding="10")
+            file_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+            # File list with scrollbar
+            file_list_frame = ttk.Frame(file_frame)
+            file_list_frame.pack(fill=tk.BOTH, expand=True)
+        
+            file_scrollbar = ttk.Scrollbar(file_list_frame)
+            file_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+            file_listbox = tk.Listbox(file_list_frame, yscrollcommand=file_scrollbar.set)
+            file_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+            file_scrollbar.config(command=file_listbox.yview)
+        
+            # Add C# files to the list
+            cs_files = [f for f in self.selected_files if f.endswith('.cs')]
+            for file in sorted(cs_files):
+                file_listbox.insert(tk.END, file)
+        
+            # Method selection
+            method_frame = ttk.LabelFrame(select_dialog, text="Select Method", padding="10")
+            method_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+            # Method list with scrollbar
+            method_list_frame = ttk.Frame(method_frame)
+            method_list_frame.pack(fill=tk.BOTH, expand=True)
+        
+            method_scrollbar = ttk.Scrollbar(method_list_frame)
+            method_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+            method_listbox = tk.Listbox(method_list_frame, yscrollcommand=method_scrollbar.set)
+            method_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+            method_scrollbar.config(command=method_listbox.yview)
+        
+            # Function to update method list when file is selected
+            def update_method_list(event=None):
+                method_listbox.delete(0, tk.END)
+            
+                selected_indices = file_listbox.curselection()
+                if not selected_indices:
+                    return
+                
+                file_path = file_listbox.get(selected_indices[0])
+            
+                # Get methods in file - using try-except to handle potential errors
+                try:
+                    methods = self.reference_tracker.get_methods_in_file(file_path)
+                    for method in sorted(methods):
+                        method_listbox.insert(tk.END, method)
+                except Exception as e:
+                    self.log(f"Error getting methods: {str(e)}")
+                    messagebox.showerror("Error", f"Could not get methods: {str(e)}")
+        
+            # Bind file selection event
+            file_listbox.bind('<<ListboxSelect>>', update_method_list)
+        
+            # Buttons
+            button_frame = ttk.Frame(select_dialog)
+            button_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+            cancel_button = ttk.Button(button_frame, text="Cancel", 
+                                      command=select_dialog.destroy)
+            cancel_button.pack(side=tk.RIGHT, padx=5)
+        
+            show_all_button = ttk.Button(button_frame, text="Show All Methods", 
+                                       command=lambda: visualize_methods(None))
+            show_all_button.pack(side=tk.RIGHT, padx=5)
+        
+            visualize_button = ttk.Button(button_frame, text="Visualize Method", 
+                                        command=lambda: visualize_methods())
+            visualize_button.pack(side=tk.RIGHT, padx=5)
+        
+            # Function to handle visualization
+            def visualize_methods(method_name=None):
+                try:
+                    selected_indices = file_listbox.curselection()
+                    if not selected_indices:
+                        messagebox.showinfo("Information", "Please select a file.")
+                        return
+                    
+                    file_path = file_listbox.get(selected_indices[0])
+                
+                    if method_name is None:
+                        # If we're showing all methods or a specific method
+                        method_indices = method_listbox.curselection()
+                        if method_indices:
+                            method_name = method_listbox.get(method_indices[0])
+                
+                    # Create visualizer
+                    visualizer = CodeVisualizer(self.reference_tracker, self.log)
+                
+                    # Determine reference depth
+                    depth = 1
+                
+                    # Create graph
+                    self.log(f"Generating method reference graph for {os.path.basename(file_path)}...")
+                    graph = visualizer.create_method_reference_graph(file_path, method_name, max_depth=depth)
+                
+                    if graph:
+                        # Show visualization
+                        title = f"Method References - {os.path.basename(file_path)}"
+                        if method_name:
+                            title += f" - {method_name}"
+                        
+                        visualizer.visualize_graph(graph, title, self.root)
+                        select_dialog.destroy()
+                    else:
+                        messagebox.showerror("Error", "Failed to create method reference graph.")
+                except Exception as e:
+                    self.log(f"Error visualizing methods: {str(e)}")
+                    messagebox.showerror("Error", f"Error visualizing methods: {str(e)}")
+        
+            # Center dialog
+            select_dialog.update_idletasks()
+            width = select_dialog.winfo_width()
+            height = select_dialog.winfo_height()
+            x = (select_dialog.winfo_screenwidth() // 2) - (width // 2)
+            y = (select_dialog.winfo_screenheight() // 2) - (height // 2)
+            select_dialog.geometry(f'{width}x{height}+{x}+{y}')
+    
+        except ImportError:
+            messagebox.showerror("Error", 
+                               "Visualization libraries not found. Use 'Install Visualization Libraries' option.")
+        except Exception as e:
+            self.log(f"Error in show_method_reference_graph: {str(e)}")
+            messagebox.showerror("Error", f"Error visualizing method references: {str(e)}")
+
+    def show_class_hierarchy_graph(self):
+        """Show class hierarchy visualization"""
+        try:
+            # Import here to avoid errors if visualization is not available
+            from code_visualization import CodeVisualizer
+        
+            # Check if reference tracking is enabled
+            if not self.reference_tracking_var.get():
+                messagebox.showinfo("Information", "Please enable reference tracking first.")
+                return
+            
+            # Ensure reference tracker is initialized
+            if not self.ensure_reference_tracker():
+                return
+            
+            # Create dialog to select classes
+            select_dialog = tk.Toplevel(self.root)
+            select_dialog.title("Select Classes")
+            select_dialog.geometry("600x400")
+            select_dialog.transient(self.root)
+            select_dialog.grab_set()
+        
+            # Class selection
+            class_frame = ttk.LabelFrame(select_dialog, text="Select Classes", padding="10")
+            class_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+            # Class list with scrollbar
+            class_list_frame = ttk.Frame(class_frame)
+            class_list_frame.pack(fill=tk.BOTH, expand=True)
+        
+            class_scrollbar = ttk.Scrollbar(class_list_frame)
+            class_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+            class_listbox = tk.Listbox(class_list_frame, yscrollcommand=class_scrollbar.set, selectmode=tk.MULTIPLE)
+            class_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+            class_scrollbar.config(command=class_listbox.yview)
+        
+            # Get all classes from reference tracker - using try-except to handle potential errors
+            all_classes = set()
+            try:
+                for file_path, info in self.reference_tracker.tracker.file_info.items():
+                    if info.get('is_xaml', False):
+                        continue
+                    
+                    namespace = info.get('namespace', '')
+                    for type_name in info.get('types', []):
+                        qualified_name = f"{namespace}.{type_name}" if namespace else type_name
+                        all_classes.add(qualified_name)
+            except Exception as e:
+                self.log(f"Error getting classes: {str(e)}")
+                # Continue with an empty set - the user will see an empty list
+        
+            # Add classes to the list
+            for class_name in sorted(all_classes):
+                class_listbox.insert(tk.END, class_name)
+        
+            # Search field
+            search_frame = ttk.Frame(class_frame)
+            search_frame.pack(fill=tk.X, pady=(0, 10))
+        
+            ttk.Label(search_frame, text="Search:").pack(side=tk.LEFT, padx=(0, 5))
+        
+            search_var = tk.StringVar()
+            search_entry = ttk.Entry(search_frame, textvariable=search_var)
+            search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+            # Function to update class list based on search
+            def update_class_list(*args):
+                search_text = search_var.get().lower()
+            
+                class_listbox.delete(0, tk.END)
+            
+                for class_name in sorted(all_classes):
+                    if search_text in class_name.lower():
+                        class_listbox.insert(tk.END, class_name)
+        
+            # Bind search field events
+            search_var.trace_add("write", update_class_list)
+        
+            # Buttons
+            button_frame = ttk.Frame(select_dialog)
+            button_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+            cancel_button = ttk.Button(button_frame, text="Cancel", 
+                                      command=select_dialog.destroy)
+            cancel_button.pack(side=tk.RIGHT, padx=5)
+        
+            show_all_button = ttk.Button(button_frame, text="Show All Classes", 
+                                       command=lambda: visualize_classes([]))
+            show_all_button.pack(side=tk.RIGHT, padx=5)
+        
+            visualize_button = ttk.Button(button_frame, text="Visualize Selected", 
+                                        command=lambda: visualize_classes())
+            visualize_button.pack(side=tk.RIGHT, padx=5)
+        
+            # Function to handle visualization
+            def visualize_classes(selected_classes=None):
+                try:
+                    if selected_classes is None:
+                        # Get selected classes
+                        selected_indices = class_listbox.curselection()
+                        selected_classes = [class_listbox.get(i) for i in selected_indices]
+                
+                    # Create visualizer
+                    visualizer = CodeVisualizer(self.reference_tracker, self.log)
+                
+                    # Create graph
+                    self.log("Generating class hierarchy graph...")
+                    graph = visualizer.create_class_reference_graph(
+                        self.root_dir_var.get(), 
+                        selected_classes,
+                        max_depth=2
+                    )
+                
+                    if graph:
+                        # Show visualization
+                        title = "Class Hierarchy Graph"
+                        visualizer.visualize_graph(graph, title, self.root)
+                        select_dialog.destroy()
+                    else:
+                        messagebox.showerror("Error", "Failed to create class hierarchy graph.")
+                except Exception as e:
+                    self.log(f"Error visualizing classes: {str(e)}")
+                    messagebox.showerror("Error", f"Error visualizing classes: {str(e)}")
+        
+            # Center dialog
+            select_dialog.update_idletasks()
+            width = select_dialog.winfo_width()
+            height = select_dialog.winfo_height()
+            x = (select_dialog.winfo_screenwidth() // 2) - (width // 2)
+            y = (select_dialog.winfo_screenheight() // 2) - (height // 2)
+            select_dialog.geometry(f'{width}x{height}+{x}+{y}')
+    
+        except ImportError:
+            messagebox.showerror("Error", 
+                               "Visualization libraries not found. Use 'Install Visualization Libraries' option.")
+        except Exception as e:
+            self.log(f"Error in show_class_hierarchy_graph: {str(e)}")
+            messagebox.showerror("Error", f"Error visualizing class hierarchy: {str(e)}")
+
+    def install_visualization_libraries(self):
+        """Install required visualization libraries"""
+        try:
+            import subprocess
+            import sys
+        
+            self.log("Installing visualization libraries (networkx, matplotlib)...")
+        
+            # Run pip install
+            python_exe = sys.executable
+            subprocess.check_call([python_exe, "-m", "pip", "install", "networkx", "matplotlib"])
+        
+            self.log("Libraries installed successfully. Please restart the application.")
+            messagebox.showinfo("Success", 
+                              "Visualization libraries installed successfully.\n"
+                              "Please restart the application to use visualization features.")
+        except Exception as e:
+            error_msg = f"Error installing libraries: {str(e)}"
+            self.log(error_msg)
+            messagebox.showerror("Error", error_msg)
 
     def toggle_depth_spinner(self):
         """Enable or disable depth spinner based on unlimited depth checkbox"""
