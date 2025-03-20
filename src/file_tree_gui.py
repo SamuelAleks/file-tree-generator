@@ -1006,7 +1006,8 @@ class FileTreeGeneratorApp:
             method_scrollbar = ttk.Scrollbar(method_list_frame)
             method_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
-            method_listbox = tk.Listbox(method_list_frame, yscrollcommand=method_scrollbar.set)
+            method_listbox = tk.Listbox(method_list_frame, yscrollcommand=method_scrollbar.set, 
+                                       selectmode=tk.SINGLE, exportselection=0)
             method_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
             method_scrollbar.config(command=method_listbox.yview)
@@ -1014,21 +1015,37 @@ class FileTreeGeneratorApp:
             # Function to update method list when file is selected
             def update_method_list(event=None):
                 method_listbox.delete(0, tk.END)
-            
+
                 selected_indices = file_listbox.curselection()
                 if not selected_indices:
                     return
-                
+    
                 file_path = file_listbox.get(selected_indices[0])
-            
+    
+                # Add debug logging
+                self.log(f"Selected file: {file_path}")
+                if hasattr(self.reference_tracker, 'tracker') and file_path in self.reference_tracker.tracker.file_info:
+                    self.log(f"File found in parser database")
+                    methods_in_file = self.reference_tracker.tracker.file_info[file_path].get('methods', [])
+                    self.log(f"Methods in file according to parser: {len(methods_in_file)}")
+                else:
+                    self.log(f"File not found in parser database - may need to parse first")
+
                 # Get methods in file - using try-except to handle potential errors
                 try:
                     methods = self.reference_tracker.get_methods_in_file(file_path)
-                    for method in sorted(methods):
-                        method_listbox.insert(tk.END, method)
+                    if methods:
+                        for method in sorted(methods):
+                            method_listbox.insert(tk.END, method)
+                    else:
+                        # Provide user feedback when no methods are found
+                        self.log(f"No methods found in {os.path.basename(file_path)}")
+                        method_listbox.insert(tk.END, "<No methods found>")
                 except Exception as e:
                     self.log(f"Error getting methods: {str(e)}")
                     messagebox.showerror("Error", f"Could not get methods: {str(e)}")
+
+
         
             # Bind file selection event
             file_listbox.bind('<<ListboxSelect>>', update_method_list)

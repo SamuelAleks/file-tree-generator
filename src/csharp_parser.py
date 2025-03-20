@@ -28,8 +28,7 @@ class CSharpReferenceTracker:
             'class_decl': re.compile(r'(?:(?:public|private|protected|internal|protected\s+internal|private\s+protected|file)\s+)?(?:(?:abstract|sealed|static)\s+)?(?:partial\s+)?(?:class|struct|interface|record|enum)\s+(\w+)'),
             
             # Method declarations
-            'method_decl': re.compile(r'(?:(?:public|private|protected|internal|protected\s+internal|private\s+protected|file)\s+)?(?:(?:abstract|virtual|override|sealed|static|async|new|extern)\s+)*(?:[\w<>[\],\s]+\s+)(\w+)\s*\([^)]*\)(?:\s*:\s*[^{;]+)?(?:\s*where\s+[^{;]+)?(?:\s*=>|{)'),
-            
+            'method_decl': re.compile(r'(?:(?:public|private|protected|internal|protected\s+internal|private\s+protected|file)\s+)?(?:(?:abstract|virtual|override|sealed|static|async|new|extern|partial)\s+)*(?:[\w<>[\].,\s]+\s+)(\w+)\s*\([^)]*\)(?:\s*(?:=>|{|;)|(?:\s*:\s*[^{;]+)(?:\s*(?:=>|{|;)))'),            
             # Method calls
             'method_call': re.compile(r'(\w+)\.(\w+)\s*\('),
             
