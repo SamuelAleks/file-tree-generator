@@ -1,8 +1,9 @@
 from setuptools import setup, find_packages
+from src.version import VERSION
 
 setup(
     name="file-tree-generator",
-    version="1.0.2",
+    version=VERSION,
     packages=find_packages(),
     install_requires=[],
     author="Paape Companies",

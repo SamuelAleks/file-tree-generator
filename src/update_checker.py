@@ -7,9 +7,10 @@ import webbrowser
 import urllib.request
 import socket
 from packaging.version import Version as StrictVersion
+from src.version import VERSION
 
 # Current version - update this when you release a new version
-CURRENT_VERSION = "1.0.2"
+CURRENT_VERSION = VERSION
 GITHUB_REPO = "SamuelAleks/file-tree-generator"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 GITHUB_RELEASE_URL = f"https://github.com/{GITHUB_REPO}/releases/latest"
@@ -95,5 +96,5 @@ def add_update_check_to_menu(menu):
 # For automatic update check at startup
 def check_updates_at_startup(root):
     """Check for updates at startup without blocking the UI"""
-    # Delay the check to ensure the UI is fully loaded
-    root.after(2000, lambda: check_for_updates(silent=True, parent=root))
+    # Increase delay to ensure UI is fully loaded
+    root.after(5000, lambda: check_for_updates(silent=True, parent=root))

@@ -11,11 +11,15 @@ SRC_DIR = os.path.join(ROOT_DIR, "src")
 
 def rmtree_with_retry(folder_path, max_retries=3, retry_delay=1.0):
     """Remove a directory tree with retry logic for Windows permission issues"""
+    # Check if folder exists first
+    if not os.path.exists(folder_path):
+        print(f"Directory {folder_path} does not exist, no need to remove")
+        return True  # Success - nothing to remove
+        
     for attempt in range(max_retries):
         try:
-            if os.path.exists(folder_path):
-                print(f"Removing {folder_path}...")
-                shutil.rmtree(folder_path)
+            print(f"Removing {folder_path}...")
+            shutil.rmtree(folder_path)
             return True  # Success
         except (PermissionError, OSError) as e:
             print(f"Warning: Failed to remove {folder_path} (attempt {attempt+1}/{max_retries})")
@@ -30,6 +34,40 @@ def rmtree_with_retry(folder_path, max_retries=3, retry_delay=1.0):
     
     return False
 
+def extract_version_for_inno_setup():
+    """Extract version from version.py and create a version.iss file for Inno Setup"""
+    try:
+        # Find the version.py file
+        version_file = os.path.join(SRC_DIR, "version.py")
+        if not os.path.exists(version_file):
+            print(f"Warning: version.py not found at {version_file}")
+            return "1.0.0"  # Default version if file not found
+            
+        # Read the version.py file
+        with open(version_file, 'r') as f:
+            content = f.read()
+            
+        # Extract the version using regex
+        import re
+        match = re.search(r'VERSION\s*=\s*["\']([^"\']+)["\']', content)
+        if not match:
+            print("Warning: VERSION not found in version.py")
+            return "1.0.0"  # Default version if version not found
+            
+        version = match.group(1)
+        print(f"Extracted version: {version}")
+        
+        # Create the version.iss file
+        version_iss_path = os.path.join(ROOT_DIR, "version.iss")
+        with open(version_iss_path, 'w') as f:
+            f.write(f'#define MyAppVersion "{version}"\n')
+            
+        print(f"Created version.iss with version {version}")
+        return version
+        
+    except Exception as e:
+        print(f"Error extracting version: {str(e)}")
+        return "1.0.0"  # Default version on error
 def clean_build_folders():
     """Remove build artifacts with improved error handling"""
     folders_to_remove = ['build', 'dist', '__pycache__']
@@ -162,6 +200,9 @@ if __name__ == "__main__":
     
     # Clean build artifacts
     clean_build_folders()
+
+    
+    version = extract_version_for_inno_setup()
     
     # Build the executable
     if build_executable():

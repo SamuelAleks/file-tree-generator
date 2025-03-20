@@ -864,6 +864,17 @@ class FileTreeGeneratorApp:
 
     def toggle_show_all_models(self):
         """Handle show all models toggle"""
+        # This method is called by the GUI when the checkbox state changes
+        # The actual toggling is handled by tkinter through the BooleanVar
+        # Just need to update UI elements that depend on this setting
+    
+        # Log the change
+        if self.show_all_models_var.get():
+            self.log("Token estimates for all models will be included in output")
+        else:
+            self.log(f"Token estimates will only be shown for {self.token_model_var.get()}")
+        
+        # Update the preview with current settings
         self.update_token_preview()
 
     def update_token_preview(self):
@@ -919,14 +930,18 @@ class FileTreeGeneratorApp:
                         method=method,
                         max_files=500  # Limit for preview
                     )
-            
+        
+                    # Store results in local variables to avoid lambda capture issues
+                    token_count = result['total_tokens']
+                    processed_files = result['processed_files']
+                    skipped_message = " (limited preview)" if result.get('skipped_files', 0) > 0 else ""
+        
                     # Update UI in main thread with a properly defined lambda
                     self.root.after(0, lambda: self.token_preview_var.set(
-                        f"Estimated tokens: {result['total_tokens']:,} in {result['processed_files']} files" +
-                        (f" (limited preview)" if result.get('skipped_files', 0) > 0 else "")
+                        f"Estimated tokens: {token_count:,} in {processed_files} files{skipped_message}"
                     ))
                 except Exception as e:
-                    # Store error message in a variable to avoid lambda scope issues
+                    # Store error message to avoid lambda scope issues
                     error_msg = str(e)
                     self.root.after(0, lambda: self.token_preview_var.set(f"Error: {error_msg}"))
         
