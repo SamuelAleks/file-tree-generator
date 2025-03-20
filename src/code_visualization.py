@@ -102,6 +102,113 @@ class InteractiveGraphCanvas(tk.Canvas):
         # Run force-directed layout for initial positioning
         self.run_force_directed_layout()
     
+    def center_on_node(self, node_id):
+        """Center the view on a specific node"""
+        if node_id not in self.nodes:
+            return
+        
+        # Get node position
+        node_data = self.nodes[node_id]
+        node_x = node_data['x']
+        node_y = node_data['y']
+    
+        # Calculate canvas center
+        canvas_width = self.winfo_width()
+        canvas_height = self.winfo_height()
+    
+        # Update offset to center node
+        self.offset_x = canvas_width / 2 - node_x * self.scale
+        self.offset_y = canvas_height / 2 - node_y * self.scale
+    
+        # Redraw the graph
+        self.draw_graph()
+    
+        # Highlight the node
+        self.highlight_node(node_id)
+
+    def highlight_node(self, node_id):
+        """Highlight a specific node with animation effect"""
+        if node_id not in self.nodes:
+            return
+        
+        # Store current node colors
+        original_colors = {}
+        for n_id, node in self.nodes.items():
+            node_type = node.get('type', 'default')
+            original_colors[n_id] = self.node_colors.get(node_type, self.node_colors['default'])
+    
+        # Highlight animation function
+        def animate_highlight(step=0, max_steps=6):
+            if step >= max_steps:
+                # Restore original colors
+                for n_id, color in original_colors.items():
+                    node_type = self.nodes[n_id].get('type', 'default')
+                    self.node_colors[node_type] = color
+                self.draw_graph()
+                return
+            
+            # Toggle highlight
+            if step % 2 == 0:
+                # Highlight node
+                node_type = self.nodes[node_id].get('type', 'default')
+                self.node_colors[node_type] = '#FF5500'  # Bright orange
+            else:
+                # Restore original
+                node_type = self.nodes[node_id].get('type', 'default')
+                self.node_colors[node_type] = original_colors[node_id]
+            
+            # Redraw and schedule next step
+            self.draw_graph()
+            self.after(100, lambda: animate_highlight(step + 1, max_steps))
+    
+        # Start animation
+        animate_highlight()
+
+    def export_as_image(self):
+        """Export the canvas as a PNG image"""
+        from tkinter import filedialog
+        import os
+    
+        # Ask for save location
+        filename = filedialog.asksaveasfilename(
+            title="Save Graph Image",
+            defaultextension=".png",
+            filetypes=[("PNG files", "*.png"), ("All files", "*.*")]
+        )
+    
+        if not filename:
+            return
+        
+        try:
+            # Try to use PIL for better quality export
+            try:
+                from PIL import ImageGrab
+            
+                # Get canvas coordinates
+                x = self.winfo_rootx()
+                y = self.winfo_rooty()
+                width = self.winfo_width()
+                height = self.winfo_height()
+            
+                # Grab the image
+                image = ImageGrab.grab((x, y, x + width, y + height))
+            
+                # Save the image
+                image.save(filename)
+            
+                messagebox.showinfo("Export Successful", f"Graph exported to {filename}")
+            
+            except ImportError:
+                # Fallback to PostScript export if PIL is not available
+                ps_file = os.path.splitext(filename)[0] + ".ps"
+                self.postscript(file=ps_file)
+                messagebox.showinfo("Export Successful", 
+                                  f"Graph exported as PostScript to {ps_file}\n"
+                                  f"Install PIL/Pillow for PNG export: pip install pillow")
+                
+        except Exception as e:
+            messagebox.showerror("Export Failed", f"Error exporting graph: {str(e)}")
+
     def draw_graph(self):
         """Draw the complete graph"""
         self.delete("all")  # Clear canvas

@@ -448,6 +448,241 @@ class CSharpReferenceTracker:
 
         return methods_info
 
+    def parse_method_details(self, content, file_path):
+        """
+        Enhanced method parsing that captures rich relationship information
+    
+        Args:
+            content: The file content to parse
+            file_path: Path to the file being parsed
+    
+        Returns:
+            Dictionary mapping method names to their detailed information
+        """
+        # Clean content for parsing
+        clean_content = self._remove_comments_and_strings(content)
+
+        # Get namespace and classes in this file
+        namespace = self._extract_namespace(clean_content)
+        classes = self._extract_type_declarations(clean_content)
+    
+        # Track methods defined and their relationships
+        method_details = {}
+        method_call_graph = {}  # method -> [methods it calls]
+        object_usages = {}      # objects used by methods
+        variables = {}          # variables defined in each method
+
+        # First pass: Extract method definitions and signatures
+        for match in self.patterns['method_decl'].finditer(clean_content):
+            method_name = match.group(1)
+        
+            # Skip keywords that might be incorrectly matched
+            if method_name in ['if', 'while', 'for', 'foreach', 'switch', 'using', 'try', 'catch']:
+                continue
+        
+            # Get method position
+            start_pos = match.start()
+            end_pos = self._find_method_boundary(clean_content, start_pos)
+            line_number = clean_content[:start_pos].count('\n') + 1
+            end_line = line_number + clean_content[start_pos:end_pos].count('\n')
+        
+            # Get full method text
+            method_text = clean_content[start_pos:end_pos]
+        
+            # Extract signature - get everything from method decl to opening brace
+            signature_parts = match.group(0).split('{')[0]
+        
+            # Extract parameter list
+            params_match = re.search(r'\((.*?)\)', signature_parts)
+            parameters = []
+            if params_match:
+                param_text = params_match.group(1)
+                # Parse individual parameters
+                if param_text.strip():
+                    for param in param_text.split(','):
+                        param = param.strip()
+                        if param:
+                            param_parts = param.split()
+                            if len(param_parts) >= 2:
+                                param_type = ' '.join(param_parts[:-1])
+                                param_name = param_parts[-1]
+                                parameters.append({
+                                    'type': param_type,
+                                    'name': param_name
+                                })
+        
+            # Extract return type
+            return_type = 'void'  # Default
+            parts = signature_parts.split(method_name)[0].strip()
+            if parts:
+                # Remove access modifiers
+                for modifier in ['public', 'private', 'protected', 'internal', 'static', 'virtual', 'override', 'abstract']:
+                    parts = parts.replace(modifier, '').strip()
+                return_type = parts
+        
+            # Store method details
+            method_details[method_name] = {
+                'name': method_name,
+                'signature': signature_parts.strip(),
+                'parameters': parameters,
+                'return_type': return_type,
+                'class': classes[0] if classes else None,
+                'namespace': namespace,
+                'start_line': line_number,
+                'end_line': end_line,
+                'file_path': file_path,
+                'body': method_text,
+                'calls': [],  # Will be populated with method calls
+                'called_by': [],  # Will be populated later
+                'objects': [],  # Objects used/created
+                'variables': [],  # Variables defined
+                'qualified_name': f"{namespace}.{classes[0]}.{method_name}" if namespace and classes else method_name
+            }
+        
+            # Initialize call graph
+            method_call_graph[method_name] = []
+        
+        # Second pass: Find method calls and object/variable usage
+        for method_name, details in method_details.items():
+            method_body = details['body']
+        
+            # Find method calls
+            for call_match in self.patterns['method_call'].finditer(method_body):
+                object_name = call_match.group(1)
+                called_method = call_match.group(2)
+            
+                # Skip "this" references and common C# patterns
+                if object_name in ['this', 'base', 'var', 'if', 'for', 'while']:
+                    continue
+            
+                # Get line number of the call
+                call_pos = call_match.start()
+                call_line = details['start_line'] + method_body[:call_pos].count('\n')
+            
+                # Track this call
+                method_call_info = {
+                    'object': object_name,
+                    'method': called_method,
+                    'line': call_line,
+                    'target_class': None,  # Will try to resolve this later
+                    'target_file': None    # Will try to resolve this later
+                }
+            
+                method_details[method_name]['calls'].append(method_call_info)
+                method_call_graph[method_name].append(called_method)
+            
+                # Track object usage
+                if object_name not in method_details[method_name]['objects']:
+                    method_details[method_name]['objects'].append(object_name)
+        
+            # Find variable declarations
+            for var_match in re.finditer(r'(?:var|int|string|bool|double|float|decimal)\s+(\w+)\s*=', method_body):
+                var_name = var_match.group(1)
+                method_details[method_name]['variables'].append(var_name)
+        
+            # Find object instantiations
+            for new_match in re.finditer(r'new\s+(\w+)', method_body):
+                class_name = new_match.group(1)
+                method_details[method_name]['objects'].append({
+                    'type': 'instantiation',
+                    'class': class_name
+                })
+            
+        # Third pass: Resolve method calls to actual methods where possible
+        self._resolve_method_calls(method_details, file_path)
+    
+        # Fourth pass: Build the called_by relationships
+        for caller, details in method_details.items():
+            for call_info in details['calls']:
+                target_method = call_info['method']
+                if target_method in method_details:
+                    if {'method': caller, 'file': file_path} not in method_details[target_method]['called_by']:
+                        method_details[target_method]['called_by'].append({
+                            'method': caller,
+                            'file': file_path,
+                            'line': call_info['line']
+                        })
+    
+        # Store method information in file_info
+        if file_path in self.file_info:
+            self.file_info[file_path]['method_details'] = method_details
+    
+        return method_details
+
+    def _find_method_boundary(self, content, start_pos):
+        """Find the end position of a method based on braces"""
+        # Find opening brace
+        brace_pos = content.find('{', start_pos)
+        if brace_pos == -1:
+            # Handle expression-bodied methods
+            semicolon_pos = content.find(';', start_pos)
+            return semicolon_pos + 1 if semicolon_pos != -1 else len(content)
+    
+        # Count braces to find matching closing brace
+        brace_count = 1
+        pos = brace_pos + 1
+    
+        while brace_count > 0 and pos < len(content):
+            if content[pos] == '{':
+                brace_count += 1
+            elif content[pos] == '}':
+                brace_count -= 1
+            pos += 1
+    
+        return pos
+
+    def _resolve_method_calls(self, method_details, file_path):
+        """Attempt to resolve method calls to their actual method definitions"""
+        for method_name, details in method_details.items():
+            for call_info in details['calls']:
+                target_method = call_info['method']
+            
+                # First try to resolve in the same file
+                if target_method in method_details:
+                    call_info['target_class'] = method_details[target_method]['class']
+                    call_info['target_file'] = file_path
+                    continue
+            
+                # Try to find in other files (requires building global method index first)
+                if hasattr(self, 'method_index'):
+                    if target_method in self.method_index:
+                        # If multiple matches, use object name to disambiguate if possible
+                        matches = self.method_index[target_method]
+                    
+                        if len(matches) == 1:
+                            target_file, target_info = matches[0]
+                            call_info['target_class'] = target_info['class']
+                            call_info['target_file'] = target_file
+                        else:
+                            # Try to disambiguate using object name
+                            object_name = call_info['object']
+                            for target_file, target_info in matches:
+                                if target_info['class'] == object_name:
+                                    call_info['target_class'] = target_info['class']
+                                    call_info['target_file'] = target_file
+                                    break
+
+    def build_method_index(self):
+        """
+        Build a global index of all methods for cross-file reference resolution
+        """
+        self.method_index = {}  # method_name -> [(file_path, method_info), ...]
+        self.qualified_method_index = {}  # qualified_name -> (file_path, method_info)
+    
+        for file_path, file_info in self.file_info.items():
+            if 'method_details' not in file_info:
+                continue
+            
+            for method_name, method_info in file_info['method_details'].items():
+                # Add to simple method index
+                if method_name not in self.method_index:
+                    self.method_index[method_name] = []
+                self.method_index[method_name].append((file_path, method_info))
+            
+                # Add to qualified method index if available
+                if 'qualified_name' in method_info and method_info['qualified_name']:
+                    self.qualified_method_index[method_info['qualified_name']] = (file_path, method_info)
+
     def get_method_references(self, file_path, method_name):
         """
         Find all references to a specific method.
@@ -541,20 +776,30 @@ class CSharpReferenceTracker:
                 return file_path
         return None
 
+    def _parse_methods(self):
+        """Parse detailed method information for all C# files"""
+        for file_path, info in self.file_info.items():
+            # Only process C# files
+            if info.get('is_xaml', False):
+                continue
+            
+            if 'raw_content' in info:
+                self.parse_method_details(info['raw_content'], file_path)
+
     def parse_directory(self, directory, include_xaml=True):
         """
-        Parse all C# files in a directory and its subdirectories
-        
+        Parse all C# and optionally XAML/AXAML files in the root directory
+    
         Args:
             directory: Root directory to parse
-            include_xaml: Whether to include XAML files in the analysis
-            
+            include_xaml: Whether to include XAML/AXAML files in the analysis
+    
         Returns:
             Number of files parsed
         """
         # Track the number of files parsed
         files_parsed = 0
-        
+    
         # First pass: Parse all C# files to collect type information
         for root, _, files in os.walk(directory):
             for file in files:
@@ -562,7 +807,7 @@ class CSharpReferenceTracker:
                     full_path = os.path.join(root, file)
                     if self.parse_file(full_path):
                         files_parsed += 1
-        
+    
         # Second pass: Parse XAML files if enabled
         if include_xaml:
             for root, _, files in os.walk(directory):
@@ -571,14 +816,196 @@ class CSharpReferenceTracker:
                         full_path = os.path.join(root, file)
                         if self.parse_xaml_file(full_path):
                             files_parsed += 1
-        
+    
         # Third pass: Analyze code-behind relationships
         self.discover_code_behind_relationships()
-        
-        # Build reference graph after parsing all files
+    
+        # Fourth pass: Parse detailed method information
+        self._parse_methods()
+    
+        # Fifth pass: Build global method index
+        self.build_method_index()
+    
+        # Sixth pass: Resolve cross-file method calls
+        self._resolve_cross_file_calls()
+    
+        # Seventh pass: Build method-level reference graph
+        self._build_method_reference_graph()
+    
+        # Build file-level reference graph (original functionality)
         self._build_reference_graph()
+    
         return files_parsed
     
+    def _parse_methods(self):
+        """Parse detailed method information for all C# files"""
+        for file_path, info in self.file_info.items():
+            # Only process C# files
+            if info.get('is_xaml', False):
+                continue
+            
+            if 'raw_content' in info:
+                self.parse_method_details(info['raw_content'], file_path)
+
+    def _resolve_cross_file_calls(self):
+        """Resolve method calls across files"""
+        for file_path, info in self.file_info.items():
+            if 'method_details' not in info:
+                continue
+            
+            for method_name, method_info in info['method_details'].items():
+                for call_info in method_info['calls']:
+                    # Skip already resolved calls
+                    if call_info['target_file'] is not None:
+                        continue
+                    
+                    # Try to resolve using method index
+                    target_method = call_info['method']
+                    if target_method in self.method_index:
+                        matches = self.method_index[target_method]
+                    
+                        # Simple heuristic: if only one match, use it
+                        if len(matches) == 1:
+                            target_file, target_info = matches[0]
+                            call_info['target_class'] = target_info['class']
+                            call_info['target_file'] = target_file
+                        
+                            # Add to called_by on the other side
+                            if 'called_by' in target_info:
+                                target_info['called_by'].append({
+                                    'method': method_name,
+                                    'file': file_path,
+                                    'line': call_info['line']
+                                })
+
+    def _build_method_reference_graph(self):
+        """Build a graph of method-to-method references"""
+        self.method_graph = {}  # (file, method) -> set((target_file, target_method))
+        self.reverse_method_graph = {}  # (file, method) -> set((caller_file, caller_method))
+    
+        for file_path, info in self.file_info.items():
+            if 'method_details' not in info:
+                continue
+            
+            for method_name, method_info in info['method_details'].items():
+                # Create entry in graphs
+                method_key = (file_path, method_name)
+                if method_key not in self.method_graph:
+                    self.method_graph[method_key] = set()
+                if method_key not in self.reverse_method_graph:
+                    self.reverse_method_graph[method_key] = set()
+                
+                # Add outgoing calls
+                for call_info in method_info['calls']:
+                    target_method = call_info['method']
+                    target_file = call_info['target_file']
+                
+                    if target_file:
+                        target_key = (target_file, target_method)
+                        self.method_graph[method_key].add(target_key)
+                    
+                        # Add to reverse graph
+                        if target_key not in self.reverse_method_graph:
+                            self.reverse_method_graph[target_key] = set()
+                        self.reverse_method_graph[target_key].add(method_key)
+
+    def get_detailed_method_info(self, file_path, method_name):
+        """
+        Get comprehensive method information including relationships
+    
+        Args:
+            file_path: Path to the file containing the method
+            method_name: Name of the method
+        
+        Returns:
+            Dictionary with detailed method information or None if not found
+        """
+        if file_path not in self.file_info:
+            return None
+        
+        if 'method_details' not in self.file_info[file_path]:
+            return None
+        
+        method_details = self.file_info[file_path]['method_details']
+        if method_name not in method_details:
+            return None
+        
+        return method_details[method_name]
+
+    def get_method_call_graph(self, file_path, method_name, max_depth=2):
+        """
+        Get a graph of method calls starting from the specified method
+    
+        Args:
+            file_path: Path to the file containing the method
+            method_name: Name of the method
+            max_depth: Maximum depth of the call graph
+        
+        Returns:
+            Dictionary representation of the call graph
+        """
+        if not hasattr(self, 'method_graph'):
+            return None
+        
+        # Starting node
+        start_key = (file_path, method_name)
+        if start_key not in self.method_graph:
+            return None
+        
+        # Build graph using BFS
+        graph = {
+            'nodes': {},
+            'edges': []
+        }
+    
+        # Queue for BFS
+        queue = [(start_key, 0)]  # (node, depth)
+        visited = {start_key}
+    
+        while queue:
+            (current_file, current_method), depth = queue.pop(0)
+        
+            # Get method details
+            method_info = self.get_detailed_method_info(current_file, current_method)
+            if not method_info:
+                continue
+            
+            # Add node
+            node_id = f"{current_file}::{current_method}"
+            graph['nodes'][node_id] = {
+                'id': node_id,
+                'file': current_file,
+                'method': current_method,
+                'class': method_info['class'],
+                'namespace': method_info['namespace'],
+                'signature': method_info.get('signature', ''),
+                'type': 'method'
+            }
+        
+            # Stop if we've reached max depth
+            if depth >= max_depth:
+                continue
+            
+            # Process outgoing calls
+            for target_key in self.method_graph.get((current_file, current_method), set()):
+                target_file, target_method = target_key
+                target_id = f"{target_file}::{target_method}"
+            
+                # Add edge
+                edge = {
+                    'source': node_id,
+                    'target': target_id,
+                    'type': 'calls'
+                }
+                graph['edges'].append(edge)
+            
+                # Process target if not visited
+                if target_key not in visited:
+                    visited.add(target_key)
+                    queue.append((target_key, depth + 1))
+    
+        return graph
+
     def parse_file(self, file_path):
         """Parse a C# file and extract declarations and references"""
         try:

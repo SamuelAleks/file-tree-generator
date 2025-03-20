@@ -33,10 +33,10 @@ class ReferenceTrackingManager:
     def parse_directory(self, include_xaml=True):
         """
         Parse all C# and optionally XAML/AXAML files in the root directory
-        
+    
         Args:
             include_xaml: Whether to include XAML/AXAML files in the analysis
-        
+    
         Returns:
             Number of files parsed
         """
@@ -45,10 +45,16 @@ class ReferenceTrackingManager:
             self.log("Including XAML/AXAML files in analysis")
         else:
             self.log("Excluding XAML/AXAML files from analysis")
-            
-        self.files_parsed = self.tracker.parse_directory(self.root_dir, include_xaml=include_xaml)
-        self.log(f"Parsed {self.files_parsed} files")
-        return self.files_parsed
+        
+        try:
+            self.files_parsed = self.tracker.parse_directory(self.root_dir, include_xaml=include_xaml)
+            self.log(f"Parsed {self.files_parsed} files")
+            return self.files_parsed
+        except Exception as e:
+            self.log(f"Error during parsing: {str(e)}")
+            import traceback
+            self.log(traceback.format_exc())
+            return 0
     
     def get_method_details(self, file_path, method_name=None):
         """

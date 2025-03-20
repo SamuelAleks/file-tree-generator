@@ -8,6 +8,7 @@ from tkinter.scrolledtext import ScrolledText
 from file_selector import FileSelector
 from reference_tracking import ReferenceTrackingManager
 from token_estimator import get_available_models, get_model_factors
+from method_visualization import CodeVisualizer
 
 # Import tree generation functions
 from file_tree_generator import (
@@ -819,6 +820,13 @@ class FileTreeGeneratorApp:
         visualization_menu.add_command(label="Class Hierarchy Graph", 
                                      command=self.show_class_hierarchy_graph,
                                      state="disabled")  # Will be updated by update_visualization_menu
+        
+        # Add method visualization option
+        visualization_menu.add_command(
+            label="Method Visualization", 
+            command=self.show_method_visualization,
+            state="disabled"  # Will be enabled when reference tracking is on
+        )
         visualization_menu.add_separator()
     
         # Always enable the installation option
@@ -833,6 +841,155 @@ class FileTreeGeneratorApp:
     
         # Store reference to the visualization menu for later updates
         self.visualization_menu = visualization_menu
+
+    def show_method_visualization(self):
+        """Show the method-level code visualization"""
+        # Check if reference tracking is enabled
+        if not self.reference_tracking_var.get():
+            messagebox.showinfo("Information", "Please enable reference tracking first")
+            return
+        
+        # Ensure reference tracker is initialized
+        if not self.ensure_reference_tracker():
+            return
+        
+        # Check if we have selected files
+        if not self.selected_files:
+            messagebox.showinfo("Information", "Please select at least one file to visualize")
+            return
+        
+        # Select a method to start with
+        self.select_method_for_visualization()
+
+    def select_method_for_visualization(self):
+        """Let user select a method to start visualization from"""
+        # Create dialog
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Select Starting Method")
+        dialog.geometry("600x500")
+        dialog.transient(self.root)
+        dialog.grab_set()
+    
+        # File selection frame
+        file_frame = ttk.LabelFrame(dialog, text="Select File", padding="10")
+        file_frame.pack(fill=tk.X, padx=10, pady=10)
+    
+        # File listbox with scrollbar
+        file_list_frame = ttk.Frame(file_frame)
+        file_list_frame.pack(fill=tk.BOTH, expand=True)
+    
+        file_scrollbar = ttk.Scrollbar(file_list_frame)
+        file_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    
+        file_listbox = tk.Listbox(file_list_frame, yscrollcommand=file_scrollbar.set)
+        file_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    
+        file_scrollbar.config(command=file_listbox.yview)
+    
+        # Add files to list
+        for file_path in sorted(self.reference_tracker.file_info.keys()):
+            # Only add C# files
+            if file_path.endswith('.cs'):
+                # Get relative path if possible
+                if self.root_dir_var.get():
+                    try:
+                        rel_path = os.path.relpath(file_path, self.root_dir_var.get())
+                        file_listbox.insert(tk.END, rel_path)
+                    except ValueError:
+                        file_listbox.insert(tk.END, file_path)
+                else:
+                    file_listbox.insert(tk.END, file_path)
+    
+        # Method selection frame
+        method_frame = ttk.LabelFrame(dialog, text="Select Method", padding="10")
+        method_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+    
+        # Method listbox with scrollbar
+        method_list_frame = ttk.Frame(method_frame)
+        method_list_frame.pack(fill=tk.BOTH, expand=True)
+    
+        method_scrollbar = ttk.Scrollbar(method_list_frame)
+        method_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    
+        method_listbox = tk.Listbox(method_list_frame, yscrollcommand=method_scrollbar.set)
+        method_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    
+        method_scrollbar.config(command=method_listbox.yview)
+    
+        # Function to update method list when file selection changes
+        def update_method_list(event):
+            # Clear existing methods
+            method_listbox.delete(0, tk.END)
+        
+            # Get selected file
+            selected_indices = file_listbox.curselection()
+            if not selected_indices:
+                return
+            
+            file_name = file_listbox.get(selected_indices[0])
+        
+            # Convert to absolute path if needed
+            file_path = file_name
+            if self.root_dir_var.get() and not os.path.isabs(file_path):
+                file_path = os.path.join(self.root_dir_var.get(), file_path)
+            
+            # Get methods in file
+            methods = []
+            if file_path in self.reference_tracker.file_info:
+                file_info = self.reference_tracker.file_info[file_path]
+            
+                if 'method_details' in file_info:
+                    methods = sorted(file_info['method_details'].keys())
+                elif 'methods' in file_info:
+                    methods = sorted(file_info['methods'])
+                
+            # Add methods to list
+            for method in methods:
+                method_listbox.insert(tk.END, method)
+    
+        # Bind file selection event
+        file_listbox.bind('<<ListboxSelect>>', update_method_list)
+    
+        # Button frame
+        button_frame = ttk.Frame(dialog, padding="10")
+        button_frame.pack(fill=tk.X, padx=10, pady=10)
+    
+        ttk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT, padx=5)
+    
+        # Function to launch visualization
+        def launch_visualization():
+            # Get selected file and method
+            file_indices = file_listbox.curselection()
+            method_indices = method_listbox.curselection()
+        
+            if not file_indices or not method_indices:
+                messagebox.showwarning("Selection Required", "Please select both a file and a method")
+                return
+            
+            file_name = file_listbox.get(file_indices[0])
+            method_name = method_listbox.get(method_indices[0])
+        
+            # Convert to absolute path if needed
+            file_path = file_name
+            if self.root_dir_var.get() and not os.path.isabs(file_path):
+                file_path = os.path.join(self.root_dir_var.get(), file_path)
+            
+            # Close dialog
+            dialog.destroy()
+        
+            # Launch visualization
+            visualizer = CodeVisualizer(self.root, self.reference_tracker, self.root_dir_var.get())
+            visualizer.build_graph_for_method(file_path, method_name)
+    
+        ttk.Button(button_frame, text="Visualize", command=launch_visualization).pack(side=tk.RIGHT, padx=5)
+    
+        # Center dialog
+        dialog.update_idletasks()
+        width = dialog.winfo_width()
+        height = dialog.winfo_height()
+        x = (dialog.winfo_screenwidth() // 2) - (width // 2)
+        y = (dialog.winfo_screenheight() // 2) - (height // 2)
+        dialog.geometry(f'{width}x{height}+{x}+{y}')
 
     def toggle_reference_options(self):
         """Enable or disable reference tracking options based on checkbox"""
