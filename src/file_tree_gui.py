@@ -9,9 +9,6 @@ from file_selector import FileSelector
 from reference_tracking import ReferenceTrackingManager
 from token_estimator import get_available_models, get_model_factors
 
-# Import code visualizer integration
-from code_visualizer import add_code_visualizer_to_app
-
 # Import tree generation functions
 from file_tree_generator import (
     create_file_tree, 
@@ -24,7 +21,7 @@ import token_estimator
 from update_checker import check_updates_at_startup, add_update_check_to_menu, CURRENT_VERSION, GITHUB_REPO
 
 class FileTreeGeneratorApp:
-    # Reference tracker for code visualization
+    # Reference tracker for reference tracking export functionality
     reference_tracker = None
     
     def __init__(self, root):
@@ -35,7 +32,7 @@ class FileTreeGeneratorApp:
         # Load saved configuration
         self.config = load_config()
 
-        # Create menu first (before visualizer integration)
+        # Create menu
         self.create_menu()
     
         # Create main frame
@@ -141,13 +138,6 @@ class FileTreeGeneratorApp:
         self.select_files_button = ttk.Button(reference_frame, text="Select Files...", 
                                            command=self.select_reference_files)
         self.select_files_button.grid(row=1, column=3, sticky=tk.W, padx=5)
-        
-        # Visualize References button
-        self.visualize_button = ttk.Button(reference_frame, text="Visualize References", 
-                                           command=self.visualize_references)
-        self.visualize_button.grid(row=1, column=4, sticky=tk.W, padx=5)
-        self.create_tooltip(self.visualize_button, 
-                          "Open the Code Relationship Visualizer for selected files")
 
         # Initialize reference tracking state
         self.selected_files = []
@@ -323,57 +313,492 @@ class FileTreeGeneratorApp:
     
         # Check for updates at startup (non-blocking)
         check_updates_at_startup(self.root)
-    
-        # Initialize visualization components
-        self.initialize_visualizer()
-        self.integrate_visualization_enhancements()
 
-    def initialize_visualizer(self):
-        """Initialize the code visualizer integration"""
-        try:
-            # Import the integration class directly
-            from code_visualizer_integration import CodeVisualizerIntegration
+    def create_tooltip(self, widget, text):
+        """Create a tooltip for a widget"""
+        def enter(event):
+            tooltip = tk.Toplevel(widget)
+            tooltip.overrideredirect(True)
+            tooltip.geometry(f"+{event.x_root+15}+{event.y_root+10}")
         
-            # Initialize visualizer instance
-            self.visualizer = CodeVisualizerIntegration(self)
+            label = ttk.Label(tooltip, text=text, background="#FFFFD0", relief="solid", borderwidth=1)
+            label.pack()
         
-            # Add direct references to methods for compatibility
-            if hasattr(self.visualizer, 'open_code_visualizer'):
-                self.open_code_visualizer = self.visualizer.open_code_visualizer
-            if hasattr(self.visualizer, 'visualize_method'):
-                self.visualize_method = self.visualizer.visualize_method
-            if hasattr(self.visualizer, 'show_reference_graph'):
-                self.show_reference_graph = self.visualizer.show_reference_graph
-            if hasattr(self.visualizer, 'analyze_all_references'):
-                self.visualize_all_references = self.visualizer.analyze_all_references
+            widget.tooltip = tooltip
         
-            self.log("Visualizer integration initialized successfully")
-        except Exception as e:
-            self.log(f"Error initializing visualizer: {str(e)}")
-            # Add the basic method in case integration fails
-            if not hasattr(self, 'open_code_visualizer'):
-                self.open_code_visualizer = lambda file_path=None: self.log("Visualizer not available")
-
-    
-    def integrate_visualization_enhancements(self):
-        """Integrate method visualization enhancements"""
-        try:
-            # Apply enhancements to the method visualizer
-            from method_visualizer_enhancements import integrate_method_visualization_enhancements
-            integrate_method_visualization_enhancements()
-            self.log("Method visualization enhancements applied")
-        except Exception as e:
-            self.log(f"Note: Method visualization enhancements not applied: {str(e)}")
-
-
-    def visualize_references(self):
-        """Open visualizer for selected reference files"""
-        if not self.selected_files:
-            messagebox.showinfo("Information", "Please select files for reference tracking first.")
-            return
+        def leave(event):
+            if hasattr(widget, "tooltip"):
+                widget.tooltip.destroy()
             
-        # Use the first selected file as the starting point
-        self.open_code_visualizer(self.selected_files[0])
+        widget.bind("<Enter>", enter)
+        widget.bind("<Leave>", leave)
+
+    def toggle_efficiency_options(self):
+        """Toggle various options based on efficiency settings"""
+        # If ultra-compact is enabled, automatically enable compact
+        if self.ultra_compact_view_var.get():
+            self.compact_view_var.set(True)
+    
+        # Update UI to reflect the relationship between these options
+        # This avoids confusion when both options are enabled
+        if self.ultra_compact_view_var.get():
+            for widget in self.root.winfo_children():
+                if hasattr(widget, 'winfo_children'):
+                    for child in widget.winfo_children():
+                        if hasattr(child, 'winfo_children'):
+                            for grandchild in child.winfo_children():
+                                if isinstance(grandchild, ttk.Checkbutton) and "Compact View" in str(grandchild):
+                                    grandchild.configure(state="disabled")
+        else:
+            for widget in self.root.winfo_children():
+                if hasattr(widget, 'winfo_children'):
+                    for child in widget.winfo_children():
+                        if hasattr(child, 'winfo_children'):
+                            for grandchild in child.winfo_children():
+                                if isinstance(grandchild, ttk.Checkbutton) and "Compact View" in str(grandchild):
+                                    grandchild.configure(state="normal")
+
+    def toggle_compact_options(self):
+        """Disable compact view if ultra-compact is enabled"""
+        if self.ultra_compact_view_var.get():
+            self.compact_view_var.set(False)
+        
+    def browse_root_dir(self):
+        directory = filedialog.askdirectory(title="Select Root Directory")
+        if directory:
+            self.root_dir_var.set(directory)
+            # Auto-set output file name based on directory
+            base_dir_name = os.path.basename(directory)
+            self.output_file_var.set(os.path.join(os.path.dirname(directory), f"{base_dir_name}_tree.txt"))
+    
+    def browse_output_file(self):
+        file_path = filedialog.asksaveasfilename(
+            title="Save Output File",
+            defaultextension=".txt",
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")]
+        )
+        if file_path:
+            self.output_file_var.set(file_path)
+    
+    def log(self, message):
+        self.log_text.config(state=tk.NORMAL)
+        self.log_text.insert(tk.END, message + "\n")
+        self.log_text.see(tk.END)
+        self.log_text.config(state=tk.DISABLED)
+        self.root.update()
+    
+    def save_settings(self):
+        """Save current settings as default configuration"""
+        try:
+            # Get current values from UI
+            extensions_str = self.extensions_var.get().strip()
+            extensions = [ext if ext.startswith(".") else f".{ext}" for ext in extensions_str.split()]
+        
+            blacklist_folders = self.blacklist_folders_var.get().split()
+            blacklist_files = self.blacklist_files_var.get().split()
+        
+            priority_folders = [folder for folder in self.priority_folders_var.get().split() if folder]
+            priority_files = [file for file in self.priority_files_var.get().split() if file]
+            # Get token estimation settings
+            model_name = self.token_model_var.get()
+            model_id = self.token_model_map.get(model_name, "claude-3.5-sonnet")
+        
+            # Create config dictionary
+            config = {
+                'root_dir': self.root_dir_var.get(),
+                'output_file': self.output_file_var.get(),
+                'extensions': extensions,
+                'blacklist_folders': blacklist_folders,
+                'blacklist_files': blacklist_files,
+                'priority_folders': priority_folders,
+                'priority_files': priority_files,
+                'max_lines': self.max_lines_var.get(),
+                'max_line_length': self.max_line_length_var.get(),
+                'compact_view': self.compact_view_var.get(),
+                'export_format': self.export_format_var.get(),
+                'reference_tracking': self.reference_tracking_var.get(),
+                'reference_depth': self.reference_depth_var.get(),
+                'unlimited_depth': self.unlimited_depth_var.get(),
+                'ignore_xaml': self.ignore_xaml_var.get(),
+                'ultra_compact_view': self.ultra_compact_view_var.get(),
+                'remove_comments': self.remove_comments_var.get(),
+                'exclude_empty_lines': self.exclude_empty_lines_var.get(),
+                'smart_truncate': self.smart_truncate_var.get(),
+                #'hide_binary_files': self.hide_binary_files_var.get(),
+                'hide_repeated_sections': self.hide_repeated_sections_var.get(),
+                # Token estimation settings
+                'enable_token_estimation': self.enable_token_estimation_var.get(),
+                'token_estimation_model': model_id,
+                'token_estimation_method': self.token_method_var.get(),
+                'custom_char_factor': self.custom_char_factor_var.get(),
+                'custom_word_factor': self.custom_word_factor_var.get(),
+                'show_all_models': self.show_all_models_var.get()
+                }
+        
+            # Save config
+            if save_config(config):
+                self.log("Configuration saved successfully as default settings.")
+                messagebox.showinfo("Success", "Settings saved as default configuration.")
+            else:
+                self.log("Failed to save configuration.")
+                messagebox.showerror("Error", "Failed to save configuration.")
+            
+        except Exception as e:
+            error_msg = f"Error saving configuration: {str(e)}"
+            self.log(error_msg)
+            messagebox.showerror("Error", error_msg)
+    
+    def open_file(self, file_path):
+        """Open a file with the default application in a cross-platform way"""
+        file_path = os.path.normpath(file_path)
+        try:
+            if os.name == 'nt':  # Windows
+                os.startfile(file_path)
+            elif os.name == 'posix':  # macOS or Linux
+                if sys.platform == 'darwin':  # macOS
+                    subprocess.run(['open', file_path], check=True)
+                else:  # Linux
+                    subprocess.run(['xdg-open', file_path], check=True)
+            return True
+        except Exception as e:
+            print(f"Error opening file: {str(e)}")
+            return False
+    
+    def generate_file_tree(self):
+        try:
+            # Get values from UI
+            root_dir = self.root_dir_var.get()
+            output_file = self.output_file_var.get()
+            export_format = self.export_format_var.get()
+
+            if not root_dir or not os.path.isdir(root_dir):
+                messagebox.showerror("Error", "Please select a valid root directory")
+                return
+    
+            if not output_file:
+                messagebox.showerror("Error", "Please specify an output file path")
+                return
+
+            # Ensure output file has the correct extension
+            output_base, output_ext = os.path.splitext(output_file)
+            if export_format == 'txt' and output_ext.lower() != '.txt':
+                output_file = output_base + '.txt'
+            elif export_format == 'html' and output_ext.lower() != '.html':
+                output_file = output_base + '.html'
+            elif export_format == 'markdown' and output_ext.lower() not in ['.md', '.markdown']:
+                output_file = output_base + '.md'
+            elif export_format == 'json' and output_ext.lower() != '.json':
+                output_file = output_base + '.json'
+
+            # Update output file path in UI
+            self.output_file_var.set(output_file)
+
+            # Parse extensions
+            extensions_str = self.extensions_var.get().strip()
+            if not extensions_str:
+                messagebox.showerror("Error", "Please specify at least one file extension")
+                return
+    
+            extensions = set(ext if ext.startswith(".") else f".{ext}" for ext in extensions_str.split())
+
+            # Parse blacklists
+            blacklist_folders = set(self.blacklist_folders_var.get().split())
+            blacklist_files = set(self.blacklist_files_var.get().split())
+
+            # Parse priority lists
+            priority_folders = [folder for folder in self.priority_folders_var.get().split() if folder]
+            priority_files = [file for file in self.priority_files_var.get().split() if file]
+
+            self.log(f"Starting file tree generation from {root_dir}")
+            self.log(f"Included extensions: {', '.join(extensions)}")
+            self.log(f"Blacklisted folders: {', '.join(blacklist_folders)}")
+            self.log(f"Blacklisted files: {', '.join(blacklist_files)}")
+            self.log(f"Export format: {export_format}")
+    
+            # Initialize referenced_files to None (for non-reference tracking mode)
+            referenced_files = None
+        
+            # Handle reference tracking if enabled
+            if self.reference_tracking_var.get():
+                if not self.selected_files:
+                    messagebox.showerror("Error", "Please select at least one file for reference tracking")
+                    return
+            
+                self.log(f"Reference tracking enabled with {len(self.selected_files)} selected files")
+            
+                # Determine reference depth
+                if self.unlimited_depth_var.get():
+                    depth = float('inf')
+                    self.log("Using unlimited reference depth")
+                else:
+                    depth = self.reference_depth_var.get()
+                    self.log(f"Using reference depth of {depth}")
+                
+                # Check if XAML files should be ignored
+                ignore_xaml = self.ignore_xaml_var.get()
+                if ignore_xaml:
+                    self.log("Ignoring XAML/AXAML files (except selected ones)")
+            
+                # Parse and analyze C# files
+                self.log("Analyzing C# and XAML references...")
+                reference_manager = ReferenceTrackingManager(root_dir, log_callback=self.log)
+                reference_manager.parse_directory()
+                
+                # Store this reference manager for reference tracking use
+                self.reference_tracker = reference_manager
+            
+                # Find related files
+                referenced_files = reference_manager.find_related_files(
+                    self.selected_files, 
+                    depth,
+                    ignore_xaml=ignore_xaml
+                )
+        
+                # Add reference summary to log
+                summary = reference_manager.generate_reference_summary(referenced_files)
+                self.log("\n" + summary)
+        
+                # Create a file in the output directory with the referenced files
+                reference_list_file = output_base + "_references.txt"
+                with open(reference_list_file, 'w', encoding='utf-8') as f:
+                    f.write("# Referenced Files\n\n")
+                    for file_path in sorted(referenced_files):
+                        f.write(f"- {os.path.relpath(file_path, root_dir)}\n")
+                    
+                        # Add reference details if available
+                        referenced_by, references_to = reference_manager.get_reference_details(file_path)
+                        if referenced_by:
+                            f.write(f"  Referenced by ({len(referenced_by)}):\n")
+                            for ref in sorted(referenced_by)[:10]:  # Limit to top 10
+                                f.write(f"    - {os.path.relpath(ref, root_dir)}\n")
+                        if references_to:
+                            f.write(f"  References to ({len(references_to)}):\n")
+                            for ref in sorted(references_to)[:10]:  # Limit to top 10
+                                f.write(f"    - {os.path.relpath(ref, root_dir)}\n")
+                        f.write("\n")
+        
+                self.log(f"Saved list of referenced files to {reference_list_file}")
+            
+            # Add token estimation parameters
+            enable_token_estimation = self.enable_token_estimation_var.get()
+            token_model = self.token_model_map.get(self.token_model_var.get(), "claude-3.5-sonnet")
+            token_method = self.token_method_var.get()
+        
+            # Log token estimation settings if enabled
+            if enable_token_estimation:
+                self.log(f"Token estimation enabled for model: {self.token_model_var.get()}")
+                self.log(f"Estimation method: {'Character-based' if token_method == 'char' else 'Word-based'}")
+            
+                # Update custom model factors if using custom model
+                if token_model == "custom":
+                    char_factor = self.custom_char_factor_var.get()
+                    word_factor = self.custom_word_factor_var.get()
+                    token_estimator.save_custom_model_factors(char_factor, word_factor)
+                    self.log(f"Using custom factors - Char: {char_factor}, Word: {word_factor}")
+            
+                # If showing all models is enabled, log that
+                if self.show_all_models_var.get():
+                    self.log("Including estimates for all models in output")
+                    
+            # Add this confirmation message before starting generation
+            if enable_token_estimation:
+                self.log("Token estimation is enabled - both file contents and token statistics will be included in the output")
+            # Create a temporary text output file
+            temp_output = output_file
+            if export_format != 'txt':
+                temp_output = output_file + '.temp.txt'
+        
+            # Generate file tree
+            result = create_file_tree(
+                root_dir, 
+                extensions, 
+                temp_output,
+                blacklist_folders=blacklist_folders,
+                blacklist_files=blacklist_files,
+                max_lines=self.max_lines_var.get(),
+                max_line_length=self.max_line_length_var.get(),
+                compact_view=self.compact_view_var.get(),
+                ultra_compact_view=self.ultra_compact_view_var.get(),
+                remove_comments=self.remove_comments_var.get(),
+                exclude_empty_lines=self.exclude_empty_lines_var.get(),
+                smart_truncate=self.smart_truncate_var.get(), 
+                hide_repeated_sections=self.hide_repeated_sections_var.get(),
+                priority_folders=priority_folders,
+                priority_files=priority_files,
+                referenced_files=referenced_files,  # This is now properly passed to create_file_tree
+                enable_token_estimation=enable_token_estimation,
+                token_model=token_model,
+                token_method=token_method
+            )
+
+            # Convert to desired format if needed
+            if export_format != 'txt':
+                with open(temp_output, 'r', encoding='utf-8') as f:
+                    output_lines = f.read().splitlines()
+    
+                if export_format == 'html':
+                    export_as_html(output_lines, output_file)
+                elif export_format == 'markdown':
+                    export_as_markdown(output_lines, output_file)
+                elif export_format == 'json':
+                    export_as_json(output_lines, output_file)
+    
+                # Clean up temporary file
+                os.remove(temp_output)
+    
+                result = f"File tree generated successfully in {export_format.upper()} format at {os.path.abspath(output_file)}"
+
+            self.log(result)
+            messagebox.showinfo("Success", result)
+
+            # Ask if user wants to open the file
+            if messagebox.askyesno("Open File", "Do you want to open the generated file?"):
+                self.open_file(output_file)
+    
+        except Exception as e:
+            error_msg = f"Error: {str(e)}"
+            self.log(error_msg)
+            messagebox.showerror("Error", error_msg)
+    
+    def create_menu(self):
+        """Create application menu bar"""
+        menubar = Menu(self.root)
+        self.root.config(menu=menubar)
+        self.menubar = menubar  # Store reference for later use
+    
+        # File menu
+        file_menu = Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="File", menu=file_menu)
+        file_menu.add_command(label="Open Directory...", command=self.browse_root_dir)
+        file_menu.add_command(label="Save Output As...", command=self.browse_output_file)
+        file_menu.add_separator()
+        file_menu.add_command(label="Exit", command=self.root.quit)
+    
+        # Settings menu
+        settings_menu = Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Settings", menu=settings_menu)
+        settings_menu.add_command(label="Save as Default", command=self.save_settings)
+    
+        # Help menu
+        help_menu = Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Help", menu=help_menu)
+        help_menu.add_command(label="About", command=self.show_about)
+    
+        # Add update check to Help menu
+        add_update_check_to_menu(help_menu)
+
+    def toggle_reference_options(self):
+        """Enable or disable reference tracking options based on checkbox"""
+        state = "normal" if self.reference_tracking_var.get() else "disabled"
+    
+        # Use direct widget references for more reliability
+        if hasattr(self, 'depth_spinbox'):
+            # If unlimited depth is checked, keep spinbox disabled
+            if self.unlimited_depth_var.get() and self.reference_tracking_var.get():
+                self.depth_spinbox.configure(state="disabled")
+            else:
+                self.depth_spinbox.configure(state=state)
+            
+        if hasattr(self, 'unlimited_depth_check'):
+            self.unlimited_depth_check.configure(state=state)
+        
+        if hasattr(self, 'ignore_xaml_check'):
+            self.ignore_xaml_check.configure(state=state)
+        
+        if hasattr(self, 'select_files_button'):
+            self.select_files_button.configure(state=state)
+        
+        # Update selected files label state
+        for child in self.root.winfo_children():
+            if isinstance(child, ttk.LabelFrame) and "Reference Tracking" in child["text"]:
+                for grandchild in child.winfo_children():
+                    if isinstance(grandchild, ttk.Label) and hasattr(grandchild, 'cget'):
+                        try:
+                            if grandchild.cget('textvariable') == str(self.selected_files_var):
+                                grandchild.configure(state=state)
+                        except:
+                            pass
+
+    def toggle_depth_spinner(self):
+        """Enable or disable depth spinner based on unlimited depth checkbox"""
+        if not hasattr(self, 'depth_spinbox'):
+            return
+        
+        if self.reference_tracking_var.get():
+            if self.unlimited_depth_var.get():
+                self.depth_spinbox.configure(state="disabled")
+            else:
+                self.depth_spinbox.configure(state="normal")
+        else:
+            self.depth_spinbox.configure(state="disabled")
+    
+    def toggle_xaml_options(self):
+        """Update status message when XAML ignore option changes"""
+        try:
+            if self.reference_tracking_var.get() and self.ignore_xaml_var.get():
+                self.log("XAML/AXAML files will be ignored during reference tracking (except selected files)")
+            elif self.reference_tracking_var.get():
+                self.log("XAML/AXAML files will be included in reference tracking")
+        except Exception as e:
+            print(f"Error in toggle_xaml_options: {str(e)}")
+
+    def select_reference_files(self):
+        """Open dialog to select files for reference tracking"""
+        root_dir = self.root_dir_var.get()
+        if not root_dir or not os.path.isdir(root_dir):
+            messagebox.showerror("Error", "Please select a valid root directory first")
+            return
+    
+        # Ensure extensions are defined before opening the selector
+        extensions_str = self.extensions_var.get().strip()
+        if not extensions_str:
+            messagebox.showwarning("Warning", "No file extensions specified. All files may be shown in the selector.")
+    
+        # Open file selector dialog with XAML support
+        file_selector = FileSelector(
+            self.root, 
+            root_dir, 
+            file_extension=".cs", 
+            include_xaml=not self.ignore_xaml_var.get()
+        )
+        self.root.wait_window(file_selector)
+    
+        # Get selected files
+        selected_files = file_selector.get_selected_files()
+    
+        # Make sure we got a valid list (not None)
+        if selected_files is None:
+            selected_files = []
+    
+        # Update the selected files list
+        self.selected_files = selected_files
+    
+        # Update display
+        if not self.selected_files:
+            self.selected_files_var.set("No files selected")
+        elif len(self.selected_files) == 1:
+            self.selected_files_var.set("1 file selected")
+        else:
+            self.selected_files_var.set(f"{len(self.selected_files)} files selected")
+    
+        # Count selected file types for better user feedback
+        xaml_count = sum(1 for file in self.selected_files 
+                        if file.endswith(('.xaml', '.axaml')))
+        cs_count = sum(1 for file in self.selected_files 
+                      if file.endswith('.cs'))
+        other_count = len(self.selected_files) - xaml_count - cs_count
+    
+        if self.selected_files:
+            self.log(f"Selected {cs_count} C# files, {xaml_count} XAML/AXAML files, and {other_count} other files")
+    
+        # If XAML files are selected but ignore_xaml is enabled, show info message
+        if xaml_count > 0 and self.ignore_xaml_var.get():
+            self.log("Note: Selected XAML/AXAML files will be included even though 'Ignore XAML/AXAML Files' is enabled")
+            messagebox.showinfo(
+                "XAML Files Selected", 
+                "You've selected XAML/AXAML files. These will be included in the analysis even though 'Ignore XAML/AXAML Files' is enabled.\n\n"
+                "The 'Ignore XAML/AXAML Files' option only affects files discovered during reference tracking, not files that you explicitly select."
+            )
 
     def toggle_token_options(self):
         """Enable or disable token estimation options based on checkbox"""
@@ -511,499 +936,23 @@ class FileTreeGeneratorApp:
         except Exception as e:
             self.token_preview_var.set(f"Error: {str(e)}")
 
-    def create_tooltip(self, widget, text):
-        """Create a tooltip for a widget"""
-        def enter(event):
-            tooltip = tk.Toplevel(widget)
-            tooltip.overrideredirect(True)
-            tooltip.geometry(f"+{event.x_root+15}+{event.y_root+10}")
-        
-            label = ttk.Label(tooltip, text=text, background="#FFFFD0", relief="solid", borderwidth=1)
-            label.pack()
-        
-            widget.tooltip = tooltip
-        
-        def leave(event):
-            if hasattr(widget, "tooltip"):
-                widget.tooltip.destroy()
-            
-        widget.bind("<Enter>", enter)
-        widget.bind("<Leave>", leave)
 
-    def toggle_efficiency_options(self):
-        """Toggle various options based on efficiency settings"""
-        # If ultra-compact is enabled, automatically enable compact
-        if self.ultra_compact_view_var.get():
-            self.compact_view_var.set(True)
-    
-        # Update UI to reflect the relationship between these options
-        # This avoids confusion when both options are enabled
-        if self.ultra_compact_view_var.get():
-            for widget in self.root.winfo_children():
-                if hasattr(widget, 'winfo_children'):
-                    for child in widget.winfo_children():
-                        if hasattr(child, 'winfo_children'):
-                            for grandchild in child.winfo_children():
-                                if isinstance(grandchild, ttk.Checkbutton) and "Compact View" in str(grandchild):
-                                    grandchild.configure(state="disabled")
-        else:
-            for widget in self.root.winfo_children():
-                if hasattr(widget, 'winfo_children'):
-                    for child in widget.winfo_children():
-                        if hasattr(child, 'winfo_children'):
-                            for grandchild in child.winfo_children():
-                                if isinstance(grandchild, ttk.Checkbutton) and "Compact View" in str(grandchild):
-                                    grandchild.configure(state="normal")
+    # Stub methods for visualization functions
+    def open_code_visualizer(self, file_path=None):
+        """Stub for visualization functionality (removed)"""
+        self.log("Visualization functionality has been removed")
 
-    def toggle_compact_options(self):
-        """Disable compact view if ultra-compact is enabled"""
-        if self.ultra_compact_view_var.get():
-            self.compact_view_var.set(False)
-            # Could disable the compact view checkbox here
-        
-    def browse_root_dir(self):
-        directory = filedialog.askdirectory(title="Select Root Directory")
-        if directory:
-            self.root_dir_var.set(directory)
-            # Auto-set output file name based on directory
-            base_dir_name = os.path.basename(directory)
-            self.output_file_var.set(os.path.join(os.path.dirname(directory), f"{base_dir_name}_tree.txt"))
+    def visualize_method(self, file_path=None, method_name=None):
+        """Stub for method visualization (removed)"""
+        self.log("Method visualization functionality has been removed")
     
-    def browse_output_file(self):
-        file_path = filedialog.asksaveasfilename(
-            title="Save Output File",
-            defaultextension=".txt",
-            filetypes=[("Text files", "*.txt"), ("All files", "*.*")]
-        )
-        if file_path:
-            self.output_file_var.set(file_path)
+    def show_reference_graph(self):
+        """Stub for reference graph visualization (removed)"""
+        self.log("Reference graph visualization has been removed")
     
-    def log(self, message):
-        self.log_text.config(state=tk.NORMAL)
-        self.log_text.insert(tk.END, message + "\n")
-        self.log_text.see(tk.END)
-        self.log_text.config(state=tk.DISABLED)
-        self.root.update()
-    
-    def save_settings(self):
-        """Save current settings as default configuration"""
-        try:
-            # Get current values from UI
-            extensions_str = self.extensions_var.get().strip()
-            extensions = [ext if ext.startswith(".") else f".{ext}" for ext in extensions_str.split()]
-        
-            blacklist_folders = self.blacklist_folders_var.get().split()
-            blacklist_files = self.blacklist_files_var.get().split()
-        
-            priority_folders = [folder for folder in self.priority_folders_var.get().split() if folder]
-            priority_files = [file for file in self.priority_files_var.get().split() if file]
-            # Get token estimation settings
-            model_name = self.token_model_var.get()
-            model_id = self.token_model_map.get(model_name, "claude-3.5-sonnet")
-        
-            # Create config dictionary
-            config = {
-                'root_dir': self.root_dir_var.get(),
-                'output_file': self.output_file_var.get(),
-                'extensions': extensions,
-                'blacklist_folders': blacklist_folders,
-                'blacklist_files': blacklist_files,
-                'priority_folders': priority_folders,
-                'priority_files': priority_files,
-                'max_lines': self.max_lines_var.get(),
-                'max_line_length': self.max_line_length_var.get(),
-                'compact_view': self.compact_view_var.get(),
-                'export_format': self.export_format_var.get(),
-                'reference_tracking': self.reference_tracking_var.get(),
-                'reference_depth': self.reference_depth_var.get(),
-                'unlimited_depth': self.unlimited_depth_var.get(),
-                'ignore_xaml': self.ignore_xaml_var.get(),  # Add ignore_xaml to config
-                'ultra_compact_view': self.ultra_compact_view_var.get(),
-                'remove_comments': self.remove_comments_var.get(),
-                'exclude_empty_lines': self.exclude_empty_lines_var.get(),
-                'smart_truncate': self.smart_truncate_var.get(),
-                #'hide_binary_files': self.hide_binary_files_var.get(),
-                'hide_repeated_sections': self.hide_repeated_sections_var.get(),
-                # Token estimation settings
-                'enable_token_estimation': self.enable_token_estimation_var.get(),
-                'token_estimation_model': model_id,
-                'token_estimation_method': self.token_method_var.get(),
-                'custom_char_factor': self.custom_char_factor_var.get(),
-                'custom_word_factor': self.custom_word_factor_var.get(),
-                'show_all_models': self.show_all_models_var.get()
-                }
-        
-            # Save config
-            if save_config(config):
-                self.log("Configuration saved successfully as default settings.")
-                messagebox.showinfo("Success", "Settings saved as default configuration.")
-            else:
-                self.log("Failed to save configuration.")
-                messagebox.showerror("Error", "Failed to save configuration.")
-            
-        except Exception as e:
-            error_msg = f"Error saving configuration: {str(e)}"
-            self.log(error_msg)
-            messagebox.showerror("Error", error_msg)
-    
-    def open_file(self, file_path):
-        """Open a file with the default application in a cross-platform way"""
-        file_path = os.path.normpath(file_path)
-        try:
-            if os.name == 'nt':  # Windows
-                os.startfile(file_path)
-            elif os.name == 'posix':  # macOS or Linux
-                if sys.platform == 'darwin':  # macOS
-                    subprocess.run(['open', file_path], check=True)
-                else:  # Linux
-                    subprocess.run(['xdg-open', file_path], check=True)
-            return True
-        except Exception as e:
-            print(f"Error opening file: {str(e)}")
-            return False
-    
-    def generate_file_tree(self):
-        try:
-            # Get values from UI
-            root_dir = self.root_dir_var.get()
-            output_file = self.output_file_var.get()
-            export_format = self.export_format_var.get()
-
-            if not root_dir or not os.path.isdir(root_dir):
-                messagebox.showerror("Error", "Please select a valid root directory")
-                return
-    
-            if not output_file:
-                messagebox.showerror("Error", "Please specify an output file path")
-                return
-
-            # Ensure output file has the correct extension
-            output_base, output_ext = os.path.splitext(output_file)
-            if export_format == 'txt' and output_ext.lower() != '.txt':
-                output_file = output_base + '.txt'
-            elif export_format == 'html' and output_ext.lower() != '.html':
-                output_file = output_base + '.html'
-            elif export_format == 'markdown' and output_ext.lower() not in ['.md', '.markdown']:
-                output_file = output_base + '.md'
-            elif export_format == 'json' and output_ext.lower() != '.json':
-                output_file = output_base + '.json'
-
-            # Update output file path in UI
-            self.output_file_var.set(output_file)
-
-            # Parse extensions
-            extensions_str = self.extensions_var.get().strip()
-            if not extensions_str:
-                messagebox.showerror("Error", "Please specify at least one file extension")
-                return
-    
-            extensions = set(ext if ext.startswith(".") else f".{ext}" for ext in extensions_str.split())
-
-            # Parse blacklists
-            blacklist_folders = set(self.blacklist_folders_var.get().split())
-            blacklist_files = set(self.blacklist_files_var.get().split())
-
-            # Parse priority lists
-            priority_folders = [folder for folder in self.priority_folders_var.get().split() if folder]
-            priority_files = [file for file in self.priority_files_var.get().split() if file]
-
-            self.log(f"Starting file tree generation from {root_dir}")
-            self.log(f"Included extensions: {', '.join(extensions)}")
-            self.log(f"Blacklisted folders: {', '.join(blacklist_folders)}")
-            self.log(f"Blacklisted files: {', '.join(blacklist_files)}")
-            self.log(f"Export format: {export_format}")
-    
-            # Initialize referenced_files to None (for non-reference tracking mode)
-            referenced_files = None
-        
-            # Handle reference tracking if enabled
-            if self.reference_tracking_var.get():
-                if not self.selected_files:
-                    messagebox.showerror("Error", "Please select at least one file for reference tracking")
-                    return
-            
-                self.log(f"Reference tracking enabled with {len(self.selected_files)} selected files")
-            
-                # Determine reference depth
-                if self.unlimited_depth_var.get():
-                    depth = float('inf')
-                    self.log("Using unlimited reference depth")
-                else:
-                    depth = self.reference_depth_var.get()
-                    self.log(f"Using reference depth of {depth}")
-                
-                # Check if XAML files should be ignored
-                ignore_xaml = self.ignore_xaml_var.get()
-                if ignore_xaml:
-                    self.log("Ignoring XAML/AXAML files (except selected ones)")
-            
-                # Parse and analyze C# files
-                self.log("Analyzing C# and XAML references...")
-                reference_manager = ReferenceTrackingManager(root_dir, log_callback=self.log)
-                reference_manager.parse_directory()
-                
-                # Store this reference manager for visualizer use
-                self.reference_tracker = reference_manager
-            
-                # Find related files
-                referenced_files = reference_manager.find_related_files(
-                    self.selected_files, 
-                    depth,
-                    ignore_xaml=ignore_xaml
-                )
-        
-                # Add reference summary to log
-                summary = reference_manager.generate_reference_summary(referenced_files)
-                self.log("\n" + summary)
-        
-                # Create a file in the output directory with the referenced files
-                reference_list_file = output_base + "_references.txt"
-                with open(reference_list_file, 'w', encoding='utf-8') as f:
-                    f.write("# Referenced Files\n\n")
-                    for file_path in sorted(referenced_files):
-                        f.write(f"- {os.path.relpath(file_path, root_dir)}\n")
-                    
-                        # Add reference details if available
-                        referenced_by, references_to = reference_manager.get_reference_details(file_path)
-                        if referenced_by:
-                            f.write(f"  Referenced by ({len(referenced_by)}):\n")
-                            for ref in sorted(referenced_by)[:10]:  # Limit to top 10
-                                f.write(f"    - {os.path.relpath(ref, root_dir)}\n")
-                        if references_to:
-                            f.write(f"  References to ({len(references_to)}):\n")
-                            for ref in sorted(references_to)[:10]:  # Limit to top 10
-                                f.write(f"    - {os.path.relpath(ref, root_dir)}\n")
-                        f.write("\n")
-        
-                self.log(f"Saved list of referenced files to {reference_list_file}")
-            
-            # Add token estimation parameters
-            enable_token_estimation = self.enable_token_estimation_var.get()
-            token_model = self.token_model_map.get(self.token_model_var.get(), "claude-3.5-sonnet")
-            token_method = self.token_method_var.get()
-        
-            # Log token estimation settings if enabled
-            if enable_token_estimation:
-                self.log(f"Token estimation enabled for model: {self.token_model_var.get()}")
-                self.log(f"Estimation method: {'Character-based' if token_method == 'char' else 'Word-based'}")
-            
-                # Update custom model factors if using custom model
-                if token_model == "custom":
-                    char_factor = self.custom_char_factor_var.get()
-                    word_factor = self.custom_word_factor_var.get()
-                    token_estimator.save_custom_model_factors(char_factor, word_factor)
-                    self.log(f"Using custom factors - Char: {char_factor}, Word: {word_factor}")
-            
-                # If showing all models is enabled, log that
-                if self.show_all_models_var.get():
-                    self.log("Including estimates for all models in output")
-                    
-            # Add this confirmation message before starting generation
-            if enable_token_estimation:
-                self.log("Token estimation is enabled - both file contents and token statistics will be included in the output")
-            # Create a temporary text output file
-            temp_output = output_file
-            if export_format != 'txt':
-                temp_output = output_file + '.temp.txt'
-        
-            # Generate file tree
-            result = create_file_tree(
-                root_dir, 
-                extensions, 
-                temp_output,
-                blacklist_folders=blacklist_folders,
-                blacklist_files=blacklist_files,
-                max_lines=self.max_lines_var.get(),
-                max_line_length=self.max_line_length_var.get(),
-                compact_view=self.compact_view_var.get(),
-                ultra_compact_view=self.ultra_compact_view_var.get(),
-                remove_comments=self.remove_comments_var.get(),
-                exclude_empty_lines=self.exclude_empty_lines_var.get(),
-                smart_truncate=self.smart_truncate_var.get(), 
-                hide_repeated_sections=self.hide_repeated_sections_var.get(),
-                priority_folders=priority_folders,
-                priority_files=priority_files,
-                referenced_files=referenced_files,  # This is now properly passed to create_file_tree
-                enable_token_estimation=enable_token_estimation,
-                token_model=token_model,
-                token_method=token_method
-            )
-
-            # Convert to desired format if needed
-            if export_format != 'txt':
-                with open(temp_output, 'r', encoding='utf-8') as f:
-                    output_lines = f.read().splitlines()
-    
-                if export_format == 'html':
-                    export_as_html(output_lines, output_file)
-                elif export_format == 'markdown':
-                    export_as_markdown(output_lines, output_file)
-                elif export_format == 'json':
-                    export_as_json(output_lines, output_file)
-    
-                # Clean up temporary file
-                os.remove(temp_output)
-    
-                result = f"File tree generated successfully in {export_format.upper()} format at {os.path.abspath(output_file)}"
-
-            self.log(result)
-            messagebox.showinfo("Success", result)
-
-            # Ask if user wants to open the file
-            if messagebox.askyesno("Open File", "Do you want to open the generated file?"):
-                self.open_file(output_file)
-    
-        except Exception as e:
-            error_msg = f"Error: {str(e)}"
-            self.log(error_msg)
-            messagebox.showerror("Error", error_msg)
-    
-    def create_menu(self):
-        """Create application menu bar"""
-        menubar = Menu(self.root)
-        self.root.config(menu=menubar)
-        self.menubar = menubar  # Store reference for later use
-    
-        # File menu
-        file_menu = Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="File", menu=file_menu)
-        file_menu.add_command(label="Open Directory...", command=self.browse_root_dir)
-        file_menu.add_command(label="Save Output As...", command=self.browse_output_file)
-        file_menu.add_separator()
-        file_menu.add_command(label="Exit", command=self.root.quit)
-    
-        # Settings menu
-        settings_menu = Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Settings", menu=settings_menu)
-        settings_menu.add_command(label="Save as Default", command=self.save_settings)
-    
-        # Create Visualize menu (will be populated by visualizer integration)
-        self.visualize_menu = Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Visualize", menu=self.visualize_menu)
-    
-        # Help menu
-        help_menu = Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Help", menu=help_menu)
-        help_menu.add_command(label="About", command=self.show_about)
-    
-        # Add update check to Help menu
-        add_update_check_to_menu(help_menu)
-
-    def toggle_reference_options(self):
-        """Enable or disable reference tracking options based on checkbox"""
-        state = "normal" if self.reference_tracking_var.get() else "disabled"
-    
-        # Use direct widget references for more reliability
-        if hasattr(self, 'depth_spinbox'):
-            # If unlimited depth is checked, keep spinbox disabled
-            if self.unlimited_depth_var.get() and self.reference_tracking_var.get():
-                self.depth_spinbox.configure(state="disabled")
-            else:
-                self.depth_spinbox.configure(state=state)
-            
-        if hasattr(self, 'unlimited_depth_check'):
-            self.unlimited_depth_check.configure(state=state)
-        
-        if hasattr(self, 'ignore_xaml_check'):
-            self.ignore_xaml_check.configure(state=state)
-        
-        if hasattr(self, 'select_files_button'):
-            self.select_files_button.configure(state=state)
-        
-        if hasattr(self, 'visualize_button'):
-            self.visualize_button.configure(state=state)
-        
-        # Update selected files label state
-        for child in self.root.winfo_children():
-            if isinstance(child, ttk.LabelFrame) and "Reference Tracking" in child["text"]:
-                for grandchild in child.winfo_children():
-                    if isinstance(grandchild, ttk.Label) and hasattr(grandchild, 'cget'):
-                        try:
-                            if grandchild.cget('textvariable') == str(self.selected_files_var):
-                                grandchild.configure(state=state)
-                        except:
-                            pass
-
-    def toggle_depth_spinner(self):
-        """Enable or disable depth spinner based on unlimited depth checkbox"""
-        if not hasattr(self, 'depth_spinbox'):
-            return
-        
-        if self.reference_tracking_var.get():
-            if self.unlimited_depth_var.get():
-                self.depth_spinbox.configure(state="disabled")
-            else:
-                self.depth_spinbox.configure(state="normal")
-        else:
-            self.depth_spinbox.configure(state="disabled")
-    
-    def toggle_xaml_options(self):
-        """Update status message when XAML ignore option changes"""
-        try:
-            if self.reference_tracking_var.get() and self.ignore_xaml_var.get():
-                self.log("XAML/AXAML files will be ignored during reference tracking (except selected files)")
-            elif self.reference_tracking_var.get():
-                self.log("XAML/AXAML files will be included in reference tracking")
-        except Exception as e:
-            print(f"Error in toggle_xaml_options: {str(e)}")
-
-    def select_reference_files(self):
-        """Open dialog to select files for reference tracking"""
-        root_dir = self.root_dir_var.get()
-        if not root_dir or not os.path.isdir(root_dir):
-            messagebox.showerror("Error", "Please select a valid root directory first")
-            return
-    
-        # Ensure extensions are defined before opening the selector
-        extensions_str = self.extensions_var.get().strip()
-        if not extensions_str:
-            messagebox.showwarning("Warning", "No file extensions specified. All files may be shown in the selector.")
-    
-        # Open file selector dialog with XAML support
-        file_selector = FileSelector(
-            self.root, 
-            root_dir, 
-            file_extension=".cs", 
-            include_xaml=not self.ignore_xaml_var.get()
-        )
-        self.root.wait_window(file_selector)
-    
-        # Get selected files
-        selected_files = file_selector.get_selected_files()
-    
-        # Make sure we got a valid list (not None)
-        if selected_files is None:
-            selected_files = []
-    
-        # Update the selected files list
-        self.selected_files = selected_files
-    
-        # Update display
-        if not self.selected_files:
-            self.selected_files_var.set("No files selected")
-        elif len(self.selected_files) == 1:
-            self.selected_files_var.set("1 file selected")
-        else:
-            self.selected_files_var.set(f"{len(self.selected_files)} files selected")
-    
-        # Count selected file types for better user feedback
-        xaml_count = sum(1 for file in self.selected_files 
-                        if file.endswith(('.xaml', '.axaml')))
-        cs_count = sum(1 for file in self.selected_files 
-                      if file.endswith('.cs'))
-        other_count = len(self.selected_files) - xaml_count - cs_count
-    
-        if self.selected_files:
-            self.log(f"Selected {cs_count} C# files, {xaml_count} XAML/AXAML files, and {other_count} other files")
-    
-        # If XAML files are selected but ignore_xaml is enabled, show info message
-        if xaml_count > 0 and self.ignore_xaml_var.get():
-            self.log("Note: Selected XAML/AXAML files will be included even though 'Ignore XAML/AXAML Files' is enabled")
-            messagebox.showinfo(
-                "XAML Files Selected", 
-                "You've selected XAML/AXAML files. These will be included in the analysis even though 'Ignore XAML/AXAML Files' is enabled.\n\n"
-                "The 'Ignore XAML/AXAML Files' option only affects files discovered during reference tracking, not files that you explicitly select."
-            )
+    def visualize_all_references(self):
+        """Stub for all references visualization (removed)"""
+        self.log("References visualization has been removed")
 
     def show_about(self):
         """Show about dialog"""
@@ -1039,9 +988,6 @@ class FileTreeGeneratorApp:
         x = (about_window.winfo_screenwidth() // 2) - (width // 2)
         y = (about_window.winfo_screenheight() // 2) - (height // 2)
         about_window.geometry(f"{width}x{height}+{x}+{y}")
-
-
-
 
 if __name__ == "__main__":
     root = tk.Tk()
