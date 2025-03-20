@@ -180,29 +180,37 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
     output.append("-" * 80)
     
     relevant_files_cache = {}
-    def has_relevant_files(dir_path, ext_set, referenced_files=None):
+    def has_relevant_files(dir_path, ext_set, referenced_files=None, depth=0, max_depth=100):
         """
         Check if directory or its subdirectories contain relevant files
-    
+
         Args:
             dir_path: Directory path to check
             ext_set: Set of file extensions to include
             referenced_files: Optional set of files for reference tracking mode
-        
+            depth: Current recursion depth
+            max_depth: Maximum recursion depth to prevent stack overflow
+    
         Returns:
             Boolean indicating if relevant files are found
         """
         # Check cache first
         if dir_path in relevant_files_cache:
             return relevant_files_cache[dir_path]
-    
+
+        # Prevent stack overflow with depth limit
+        if depth >= max_depth:
+            print(f"Warning: Maximum directory depth reached at {dir_path}")
+            relevant_files_cache[dir_path] = False
+            return False
+
         try:
             # Check if directory is blacklisted
             dir_name = os.path.basename(dir_path)
             if dir_name in blacklist_folders:
                 relevant_files_cache[dir_path] = False
                 return False
-        
+    
             # If in reference tracking mode and no files in this folder are referenced,
             # we can exit early
             if referenced_files is not None:
@@ -214,16 +222,16 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
                 if not has_any_referenced:
                     relevant_files_cache[dir_path] = False
                     return False
-        
+    
             for item in os.listdir(dir_path):
                 full_path = os.path.join(dir_path, item)
                 if os.path.isfile(full_path):
                     if item in blacklist_files:
                         continue
-                
+            
                     # Check if file has relevant extension
                     is_relevant_extension = any(item.endswith(ext) for ext in ext_set)
-                
+            
                     if is_relevant_extension:
                         # If in reference tracking mode, only count referenced files
                         if referenced_files is not None:
@@ -234,19 +242,18 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
                             # In normal mode, any file with matching extension counts
                             relevant_files_cache[dir_path] = True
                             return True
-                    
+                
                 elif os.path.isdir(full_path):
-                    if has_relevant_files(full_path, ext_set, referenced_files):
+                    if has_relevant_files(full_path, ext_set, referenced_files, depth + 1, max_depth):
                         relevant_files_cache[dir_path] = True
                         return True
-        
+    
             relevant_files_cache[dir_path] = False
             return False
-        
+    
         except (PermissionError, OSError):
             relevant_files_cache[dir_path] = False
             return False
-
 
 
 
@@ -278,7 +285,7 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
             items = sorted(os.listdir(current_dir))
             dirs = []
             files = []
-            
+        
             # Separate files and directories for better organization
             for item in items:
                 full_path = os.path.join(current_dir, item)
@@ -291,33 +298,33 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
                         files.append(item)
                 elif os.path.isdir(full_path) and item not in blacklist_folders:
                     dirs.append(item)
-            
+        
             # Sort directories and files based on priority
             def get_folder_priority(folder_name):
                 try:
                     return priority_folders.index(folder_name)
                 except ValueError:
                     return len(priority_folders)
-                    
+                
             def get_file_priority(file_name):
                 try:
                     return priority_files.index(file_name)
                 except ValueError:
                     return len(priority_files)
-            
+        
             # Sort directories by priority first, then alphabetically
             dirs.sort(key=lambda x: (get_folder_priority(x), x))
-            
+        
             # Sort files by priority first, then alphabetically
             files.sort(key=lambda x: (get_file_priority(x), x))
-            
+        
             # Process all directories first, then files
             for i, item in enumerate(dirs):
                 full_path = os.path.join(current_dir, item)
-                
+            
                 # Determine if this is the last item in the directory
                 is_last = (i == len(dirs) - 1 and len(files) == 0)
-                
+            
                 # Update prefix for child items - simpler in ultra-compact mode
                 if ultra_compact_view:
                     child_prefix = prefix + ("L " if is_last else "| ")
@@ -325,17 +332,17 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
                 else:
                     child_prefix = prefix + ("└── " if is_last else "├── ")
                     next_prefix = prefix + ("    " if is_last else "│   ")
-                
+            
                 # Recursively process subdirectory
                 process_directory(full_path, next_prefix)
-            
+        
             # Now process all files
             for i, item in enumerate(files):
                 full_path = os.path.join(current_dir, item)
-                
+            
                 # Determine if this is the last item
                 is_last = (i == len(files) - 1)
-                
+            
                 # Update prefix for file - simpler in ultra-compact mode
                 if ultra_compact_view:
                     file_prefix = prefix + ("L " if is_last else "| ")
@@ -343,16 +350,16 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
                 else:
                     file_prefix = prefix + ("└── " if is_last else "├── ")
                     content_prefix = prefix + ("    " if is_last else "│   ")
-                
+            
                 # Add file to tree with minimal metadata in ultra-compact mode
                 file_size = os.path.getsize(full_path)
                 last_modified = datetime.datetime.fromtimestamp(
                     os.path.getmtime(full_path)
                 ).strftime("%Y-%m-%d %H:%M:%S")
-                
+            
                 # Check if this file is referenced (for reference tracking mode)
                 is_referenced = reference_tracking_mode and full_path in referenced_files
-                
+            
                 # Add special marker for referenced files with minimal format in ultra-compact mode
                 if ultra_compact_view:
                     size_str = format_size(file_size)
@@ -371,13 +378,13 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
                             output.append(f"{file_prefix}📄 {item} ({format_size(file_size)}, {last_modified})")
                     else:
                         output.append(f"{file_prefix}📄 {item} ({format_size(file_size)}, {last_modified})")
-                
+            
                 # Add file content with formatting based on view mode
                 try:
                     # Skip content for non-referenced files when in reference tracking mode
                     if reference_tracking_mode and not is_referenced:
                         continue
-                    
+                
                     success, lines, error = safe_read_file(full_path, max_lines, remove_comments, exclude_empty_lines)
 
                     if not success:
@@ -392,7 +399,7 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
                             output.append(f"{prefix_to_use}└{'─' * 70}")
                         continue
 
-                    
+                
                     # Apply additional efficiency processing
                     lines = process_file_content(
                         full_path, 
@@ -402,7 +409,7 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
                         hide_repeated=hide_repeated_sections,
                         max_line_length=max_line_length
                     )
-                        
+                    
                     # Make sure content_prefix is not None (safety check)
                     prefix_to_use = content_prefix if content_prefix is not None else ""
                     if ultra_compact_view:
@@ -435,7 +442,7 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
                         output.append(f"{prefix_to_use}┌{'─' * 70}")
                         output.append(f"{prefix_to_use}│ FILE CONTENT: {item}")
                         output.append(f"{prefix_to_use}├{'─' * 70}")
-                            
+                        
                         # Add content with line numbers
                         for line_num, line in enumerate(lines, 1):
                             if line_num > max_lines:
@@ -443,7 +450,7 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
                                 break
                             truncated_line = line[:max_line_length] + "..." if len(line) > max_line_length else line
                             output.append(f"{prefix_to_use}│ {line_num:4d} │ {truncated_line}")
-                            
+                        
                         # Add content footer
                         output.append(f"{prefix_to_use}└{'─' * 70}")
                 except Exception as e:

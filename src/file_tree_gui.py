@@ -883,42 +883,42 @@ class FileTreeGeneratorApp:
             if not self.enable_token_estimation_var.get():
                 self.token_preview_var.set("Token estimation disabled")
                 return
-        
+    
             root_dir = self.root_dir_var.get()
             if not root_dir or not os.path.isdir(root_dir):
                 self.token_preview_var.set("No valid directory selected")
                 return
-        
+    
             # Get settings
             model_name = self.token_model_var.get()
             model_id = self.token_model_map.get(model_name, "claude-3.5-sonnet")
             method = self.token_method_var.get()
-    
+
             # Handle custom model factors
             if model_id == "custom":
                 char_factor = self.custom_char_factor_var.get()
                 word_factor = self.custom_word_factor_var.get()
                 token_estimator.save_custom_model_factors(char_factor, word_factor)
-        
+    
             # Parse extensions
             extensions_str = self.extensions_var.get().strip()
             if not extensions_str:
                 self.token_preview_var.set("No file extensions specified")
                 return
-        
-            extensions = set(ext if ext.startswith(".") else f".{ext}" for ext in extensions_str.split())
     
+            extensions = set(ext if ext.startswith(".") else f".{ext}" for ext in extensions_str.split())
+
             # Parse blacklists
             blacklist_folders = set(self.blacklist_folders_var.get().split())
             blacklist_files = set(self.blacklist_files_var.get().split())
-    
+
             # Update preview with quick estimation (limit to 500 files for performance)
             self.token_preview_var.set("Estimating tokens...")
             self.root.update()
-    
+
             # Run estimation in a separate thread to avoid UI freezing
             import threading
-    
+
             def estimate_tokens():
                 try:
                     result = token_estimator.estimate_tokens_for_directory(
@@ -930,12 +930,12 @@ class FileTreeGeneratorApp:
                         method=method,
                         max_files=500  # Limit for preview
                     )
-        
+    
                     # Store results in local variables to avoid lambda capture issues
                     token_count = result['total_tokens']
                     processed_files = result['processed_files']
                     skipped_message = " (limited preview)" if result.get('skipped_files', 0) > 0 else ""
-        
+    
                     # Update UI in main thread with a properly defined lambda
                     self.root.after(0, lambda: self.token_preview_var.set(
                         f"Estimated tokens: {token_count:,} in {processed_files} files{skipped_message}"
@@ -944,11 +944,11 @@ class FileTreeGeneratorApp:
                     # Store error message to avoid lambda scope issues
                     error_msg = str(e)
                     self.root.after(0, lambda: self.token_preview_var.set(f"Error: {error_msg}"))
-        
+    
             # Start the thread
             token_thread = threading.Thread(target=estimate_tokens, daemon=True)
             token_thread.start()
-    
+
         except Exception as e:
             self.token_preview_var.set(f"Error: {str(e)}")
 

@@ -68,6 +68,7 @@ def extract_version_for_inno_setup():
     except Exception as e:
         print(f"Error extracting version: {str(e)}")
         return "1.0.0"  # Default version on error
+
 def clean_build_folders():
     """Remove build artifacts with improved error handling"""
     folders_to_remove = ['build', 'dist', '__pycache__']
@@ -114,6 +115,8 @@ def build_executable():
     
     # Check for resources
     icon_path = os.path.join(ROOT_DIR, "resources", "icon.ico")
+    icon_param = []  # Default to empty list - initialize here to avoid undefined variable
+    
     if not os.path.exists(icon_path):
         # Try alternative locations
         alt_locations = [
@@ -126,12 +129,11 @@ def build_executable():
                 icon_path = loc
                 break
         
-        if not os.path.exists(icon_path):
-            print("Warning: icon.ico not found, proceeding without an icon")
-            icon_param = []
-        else:
+        if os.path.exists(icon_path):
             print(f"Found icon at {icon_path}")
             icon_param = ["--icon", icon_path]
+        else:
+            print("Warning: icon.ico not found, proceeding without an icon")
     else:
         print(f"Found icon at {icon_path}")
         icon_param = ["--icon", icon_path]
