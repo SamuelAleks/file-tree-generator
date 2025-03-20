@@ -4,6 +4,7 @@ import math
 import random
 from typing import Dict, List, Tuple, Set, Optional, Any, Callable
 import os
+import re
 
 class InteractiveGraphCanvas(tk.Canvas):
     """
@@ -226,53 +227,81 @@ class InteractiveGraphCanvas(tk.Canvas):
         if self.selected_node in self.nodes:
             self.draw_node(self.selected_node, self.nodes[self.selected_node], is_selected=True)
     
+    # Add to InteractiveGraphCanvas class
+
     def draw_node(self, node_id, node_data, is_selected=False):
-        """Draw a single node"""
+        """Draw a single node with enhanced visual information"""
         # Apply zoom and pan transformations
         x = node_data['x'] * self.scale + self.offset_x
         y = node_data['y'] * self.scale + self.offset_y
-        
-        # Determine node color and size
+    
+        # Determine node color and shape based on type
         node_type = node_data.get('type', 'default')
         color = self.node_colors.get(node_type, self.node_colors['default'])
-        
-        # Adjust color if node is highlighted
-        if node_id in self.highlighted_nodes:
-            # Make color brighter for highlighting
-            color = self.brighten_color(color)
-        
+    
+        # Get node information
+        method_name = node_data.get('method', '')
+        class_name = node_data.get('class', '')
+    
+        # Determine node size based on complexity or importance
+        complexity = node_data.get('complexity', 1)
+        base_radius = self.node_radius * min(1.0 + (complexity * 0.05), 1.5)
+    
         # Adjust radius for selected node
-        radius = self.selected_node_radius if is_selected else self.node_radius
+        radius = self.selected_node_radius if is_selected else base_radius
         radius *= self.scale  # Scale radius with zoom
-        
-        # Check if this is a focus node
-        is_focus = node_data.get('is_focus', False)
-        if is_focus:
-            color = self.node_colors['focus']
-            radius *= 1.1  # Make focus nodes slightly larger
-        
-        # Draw node with an outline
+    
+        # Calculate visual attributes
+        if is_selected:
+            outline_color = '#FF6600'  # Bright orange for selected node
+            outline_width = 3
+        else:
+            outline_color = '#333333'
+            outline_width = 1
+    
+        # Draw node with enhanced styling
         self.create_oval(
             x - radius, y - radius, 
             x + radius, y + radius,
             fill=color, 
-            outline='#333333',
-            width=2 if is_selected else 1,
+            outline=outline_color,
+            width=outline_width,
             tags=(f"node_{node_id}", "node")
         )
+    
+        # Add method signature snippet if available
+        if 'signature' in node_data and self.scale > 0.7:
+            signature = node_data['signature']
+            # Truncate signature to fit
+            if len(signature) > 30:
+                signature = signature[:27] + "..."
         
-        # Draw node label if needed
-        if is_selected or is_focus or self.scale > 0.7:
-            label = node_data.get('label', str(node_id))
-            if len(label) > 20:  # Truncate long labels
-                label = label[:17] + "..."
-                
+            # Calculate text size based on zoom
+            font_size = max(8, int(9 * self.scale))
+            font = ('Courier', font_size)
+        
+            self.create_text(
+                x, y,
+                text=signature,
+                font=font,
+                fill='black',
+                tags=(f"signature_{node_id}", "signature")
+            )
+        else:
+            # Just show the method name
+            label = method_name
+            if class_name and self.scale > 0.9:
+                label = f"{class_name}.{method_name}"
+            
+            if len(label) > 25:
+                label = label[:22] + "..."
+            
             # Calculate text size based on zoom
             font_size = max(8, int(10 * self.scale))
             font = ('Arial', font_size)
-            
+        
             self.create_text(
-                x, y + radius + 5 * self.scale,
+                x, y,
                 text=label,
                 font=font,
                 fill='black',
@@ -771,6 +800,225 @@ class InteractiveGraphCanvas(tk.Canvas):
         
         # Convert back to hex
         return f'#{r:02x}{g:02x}{b:02x}'
+
+    
+    def run_obsidian_layout(self, config=None):
+        """Run Obsidian-like force-directed layout with configurable parameters"""
+        if self.simulation_running:
+            return  # Already running
+        
+        # Use provided config or default values
+        config = config or {}
+        center_force = config.get('center_force', 0.1)
+        repulsion = config.get('repulsion', 200)
+        connection_strength = config.get('connection_strength', 0.3)
+        edge_length = config.get('edge_length', 150)
+    
+        self.simulation_running = True
+        self.simulation_step = 0
+    
+        # Calculate canvas center
+        canvas_width = self.winfo_width()
+        canvas_height = self.winfo_height()
+        center_x = canvas_width / 2 - self.offset_x
+        center_y = canvas_height / 2 - self.offset_y
+    
+        # Initial temperature (for simulated annealing)
+        temperature = 1.0
+    
+        def simulation_step():
+            nonlocal temperature
+        
+            if self.simulation_step >= self.simulation_max_steps or not self.simulation_running:
+                self.simulation_running = False
+                return
+            
+            # Calculate forces and update positions
+            forces = {node_id: [0, 0] for node_id in self.nodes}
+        
+            # Repulsive forces (between all pairs of nodes)
+            node_items = list(self.nodes.items())
+            for i, (node_id, node_data) in enumerate(node_items):
+                for j in range(i + 1, len(node_items)):
+                    other_id, other_data = node_items[j]
+                
+                    # Calculate distance
+                    dx = node_data['x'] - other_data['x']
+                    dy = node_data['y'] - other_data['y']
+                    distance = max(0.1, math.sqrt(dx * dx + dy * dy))
+                
+                    # Repulsive force inversely proportional to distance
+                    if distance > 0:
+                        force = repulsion / (distance * distance)
+                    
+                        # Normalize direction
+                        if distance > 0:
+                            dx /= distance
+                            dy /= distance
+                    
+                        # Apply force to both nodes in opposite directions
+                        forces[node_id][0] += dx * force
+                        forces[node_id][1] += dy * force
+                        forces[other_id][0] -= dx * force
+                        forces[other_id][1] -= dy * force
+        
+            # Attractive forces (between connected nodes)
+            for source_id, target_id, edge_data in self.edges:
+                if source_id in self.nodes and target_id in self.nodes:
+                    source = self.nodes[source_id]
+                    target = self.nodes[target_id]
+                
+                    # Calculate distance and direction
+                    dx = source['x'] - target['x']
+                    dy = source['y'] - target['y']
+                    distance = max(0.1, math.sqrt(dx * dx + dy * dy))
+                
+                    # Calculate optimal length based on edge type
+                    optimal_length = edge_length
+                    if 'type' in edge_data:
+                        # Adjust length based on relationship type
+                        if edge_data['type'] == 'calls':
+                            optimal_length *= 0.8  # Shorter for calls
+                        elif edge_data['type'] == 'inherits':
+                            optimal_length *= 1.2  # Longer for inheritance
+                
+                    # Attractive/repulsive force based on optimal length
+                    # (Hooke's law: force proportional to displacement from optimal length)
+                    force = connection_strength * (distance - optimal_length)
+                
+                    # Normalize direction
+                    if distance > 0:
+                        dx /= distance
+                        dy /= distance
+                
+                    # Apply force pulling nodes together or pushing them apart
+                    forces[source_id][0] -= dx * force
+                    forces[source_id][1] -= dy * force
+                    forces[target_id][0] += dx * force
+                    forces[target_id][1] += dy * force
+        
+            # Apply center gravity force (Obsidian-like behavior)
+            for node_id, node_data in self.nodes.items():
+                # Vector from node to center
+                dx = center_x - node_data['x']
+                dy = center_y - node_data['y']
+                distance = math.sqrt(dx * dx + dy * dy)
+            
+                # Gravity force proportional to distance from center
+                if distance > 0:
+                    force = center_force * distance
+                    forces[node_id][0] += (dx / distance) * force
+                    forces[node_id][1] += (dy / distance) * force
+        
+            # Add some randomness for better distribution (particularly useful
+            # when nodes are stacked on top of each other)
+            if self.simulation_step < 10:  # Only add jitter in early steps
+                for node_id in forces:
+                    forces[node_id][0] += (random.random() - 0.5) * temperature * 10
+                    forces[node_id][1] += (random.random() - 0.5) * temperature * 10
+        
+            # Update node positions with temperature scaling
+            for node_id, force in forces.items():
+                # Scale force by temperature
+                scale = min(temperature, 5.0)  # Limit max displacement
+            
+                # Update position
+                self.nodes[node_id]['x'] += force[0] * scale
+                self.nodes[node_id]['y'] += force[1] * scale
+        
+            # Update temperature (cool down the system)
+            temperature *= 0.95
+        
+            # Redraw graph
+            self.draw_graph()
+        
+            # Increment step counter
+            self.simulation_step += 1
+        
+            # Schedule next step
+            if self.simulation_step < self.simulation_max_steps and self.simulation_running:
+                self.after(10, simulation_step)
+            else:
+                self.simulation_running = False
+    
+        # Start simulation
+        simulation_step()
+
+    def apply_config(self, config):
+        """Apply configuration settings to the graph canvas"""
+        if not config:
+            return
+        
+        # Apply appearance settings
+        if 'node_size' in config:
+            self.node_radius = config['node_size']
+            self.selected_node_radius = config['node_size'] * 1.2
+        
+        if 'edge_thickness' in config:
+            self.edge_width = config['edge_thickness']
+        
+        if 'font_size' in config:
+            self.font_size = config['font_size']
+        
+        # Apply color scheme
+        if 'color_scheme' in config:
+            scheme = config['color_scheme']
+            if scheme == 'Dark':
+                self.configure(bg='#2E2E2E')
+                self.node_colors = {
+                    'focus': '#FFD700',     # Gold
+                    'cs': '#5A9BD5',        # Blue
+                    'xaml': '#70AD47',      # Green
+                    'other': '#9E9E9E',     # Gray
+                    'default': '#7030A0'    # Purple
+                }
+            elif scheme == 'Light':
+                self.configure(bg='#FFFFFF')
+                self.node_colors = {
+                    'focus': '#FFC000',     # Gold
+                    'cs': '#ADD8E6',        # Light blue
+                    'xaml': '#90EE90',      # Light green
+                    'other': '#D3D3D3',     # Light gray
+                    'default': '#B0C4DE'    # Blue
+                }
+            elif scheme == 'Colorful':
+                self.configure(bg='#F5F5F5')
+                self.node_colors = {
+                    'focus': '#FFD700',     # Gold
+                    'cs': '#4472C4',        # Blue
+                    'xaml': '#70AD47',      # Green
+                    'method': '#ED7D31',    # Orange
+                    'class': '#5B9BD5',     # Light blue
+                    'other': '#A5A5A5',     # Gray
+                    'default': '#FFC000'    # Yellow
+                }
+            elif scheme == 'Monochrome':
+                self.configure(bg='#FFFFFF')
+                self.node_colors = {
+                    'focus': '#404040',     # Dark gray
+                    'cs': '#595959',        # Medium gray
+                    'xaml': '#7F7F7F',      # Gray
+                    'other': '#A5A5A5',     # Light gray
+                    'default': '#D9D9D9'    # Very light gray
+                }
+        
+        # Apply layout settings if auto-layout is enabled
+        if config.get('auto_layout', False):
+            algorithm = config.get('layout_algorithm', 'Force-Directed')
+        
+            if algorithm == 'Force-Directed':
+                self.run_force_directed_layout()
+            elif algorithm == 'Radial':
+                self.run_obsidian_layout(config)
+            elif algorithm == 'Hierarchical':
+                self.run_hierarchical_layout()
+            elif algorithm == 'Circular':
+                self.run_circular_layout()
+            elif algorithm == 'Grid':
+                self.run_grid_layout()
+    
+        # Redraw with new settings
+        self.draw_graph()
 
 
 class InteractiveCanvasVisualizer:
@@ -1305,48 +1553,86 @@ class InteractiveCodeViewer(ttk.Frame):
         # Highlight selected line
         self.code_text.tag_configure('highlight_line', background='#ffffcc')
     
-    def display_method(self, file_path, method_name, method_info, reference_tracker):
-        """Display a method with syntax highlighting and clickable references"""
+
+    def display_method(self, file_path, method_name, method_info, reference_tracker, references=None):
+        """Display a method with enhanced reference highlighting"""
         # Store current method info
         self.current_file = file_path
         self.current_method = method_name
-        
+    
         # Clear reference tracking
         self.method_references = []
-        
+    
         # Update method info labels
         class_name = method_info.get('class', '')
         namespace = method_info.get('namespace', '')
-        
+    
         if namespace and class_name:
             self.method_name_var.set(f"{namespace}.{class_name}.{method_name}")
         elif class_name:
             self.method_name_var.set(f"{class_name}.{method_name}")
         else:
             self.method_name_var.set(method_name)
-            
-        self.method_signature_var.set(method_info.get('signature', ''))
         
+        self.method_signature_var.set(method_info.get('signature', ''))
+    
         # Update code display
         self.code_text.config(state=tk.NORMAL)
         self.code_text.delete('1.0', tk.END)
-        
+    
         # Get method body
         method_body = method_info.get('body', '')
         if method_body:
             self.code_text.insert('1.0', method_body)
-            
+        
             # Apply syntax highlighting
             self.apply_syntax_highlighting(method_body)
-            
+        
             # Highlight method calls with clickable references
             self.highlight_method_calls(method_body, method_info, reference_tracker)
-            
+        
+            # Add additional reference highlighting if provided
+            if references:
+                self.highlight_references(references)
+        
         # Make text read-only again
         self.code_text.config(state=tk.DISABLED)
-        
+    
         # Update line numbers
         self.update_line_numbers()
+
+    def highlight_references(self, references):
+        """Highlight specific references in the code with enhanced styling"""
+        for ref in references:
+            ref_type = ref.get('type', 'call')
+            start_pos = ref.get('start_pos')
+            end_pos = ref.get('end_pos')
+            target = ref.get('target', {})
+        
+            if not start_pos or not end_pos:
+                continue
+            
+            # Add appropriate tag based on reference type
+            if ref_type == 'call':
+                # Method call reference
+                self.code_text.tag_add('method_call', start_pos, end_pos)
+                self.code_text.tag_add('clickable', start_pos, end_pos)
+            elif ref_type == 'definition':
+                # Method definition reference
+                self.code_text.tag_add('definition', start_pos, end_pos)
+            elif ref_type == 'usage':
+                # Variable usage reference
+                self.code_text.tag_add('usage', start_pos, end_pos)
+        
+            # Store reference for click handling
+            self.method_references.append({
+                'start': start_pos,
+                'end': end_pos,
+                'type': ref_type,
+                'file': target.get('file'),
+                'method': target.get('method'),
+                'class': target.get('class')
+            })
     
     def apply_syntax_highlighting(self, code):
         """Apply basic syntax highlighting to code text"""
@@ -1695,3 +1981,44 @@ class MethodDocPanel(ttk.Frame):
         doc_text = re.sub(r'<exception cref="(\w+)">(.*?)</exception>', r'Exception \1: \2', doc_text, flags=re.DOTALL)
         
         return doc_text
+
+    def create_node_context_menu(self):
+        """Create context menu for nodes"""
+        self.node_menu = tk.Menu(self, tearoff=0)
+        self.node_menu.add_command(label="Go To Definition", command=self.go_to_definition)
+        self.node_menu.add_command(label="Find All References", command=self.find_all_references)
+        self.node_menu.add_command(label="Show Call Hierarchy", command=self.show_call_hierarchy)
+        self.node_menu.add_separator()
+        self.node_menu.add_command(label="Focus On This Node", command=self.focus_on_node)
+        self.node_menu.add_command(label="Expand Graph From Here", command=self.expand_graph)
+    
+        # Bind right-click on nodes
+        self.tag_bind("node", "<Button-3>", self.show_node_menu)
+
+    def show_node_menu(self, event):
+        """Show context menu on right-click"""
+        # Find node under cursor
+        x, y = self.canvasx(event.x), self.canvasy(event.y)
+        node_id = self.find_node_at(x, y)
+    
+        if node_id:
+            # Set this as the selected node
+            self.selected_node = node_id
+            self.draw_graph()  # Redraw to show selection
+        
+            # Update menu state based on node type
+            node_data = self.nodes[node_id]
+            node_type = node_data.get('type', 'default')
+        
+            # Enable/disable menu items based on node type
+            if node_type == 'method':
+                self.node_menu.entryconfig("Go To Definition", state="normal")
+                self.node_menu.entryconfig("Find All References", state="normal")
+                self.node_menu.entryconfig("Show Call Hierarchy", state="normal")
+            else:
+                self.node_menu.entryconfig("Go To Definition", state="disabled")
+                self.node_menu.entryconfig("Find All References", state="disabled")
+                self.node_menu.entryconfig("Show Call Hierarchy", state="disabled")
+        
+            # Display the menu
+            self.node_menu.post(event.x_root, event.y_root)

@@ -20,11 +20,15 @@ from file_tree_generator import (
 from config_utils import load_config, save_config
 import token_estimator
 from update_checker import check_updates_at_startup, add_update_check_to_menu, CURRENT_VERSION, GITHUB_REPO
-try:
-    from code_visualization import InteractiveCanvasVisualizer as CodeVisualizer
-    VISUALIZATION_AVAILABLE = True
-except ImportError:
-    VISUALIZATION_AVAILABLE = False
+
+
+from method_visualization import CodeVisualizer
+VISUALIZATION_AVAILABLE = True
+#try:
+#    from code_visualization import InteractiveCanvasVisualizer as CodeVisualizer
+#    VISUALIZATION_AVAILABLE = True
+#except ImportError:
+#    VISUALIZATION_AVAILABLE = False
 
 class FileTreeGeneratorApp:
     # Reference tracker for reference tracking export functionality

@@ -1,6 +1,7 @@
-﻿import tkinter as tk
+﻿import tkinter as ttk
+import tkinter as tk
 import os
-
+import re
 
 class CodeVisualizer(tk.Toplevel):
     """Advanced code visualization window with method inspection capabilities"""
@@ -46,7 +47,7 @@ class CodeVisualizer(tk.Toplevel):
         """Create menu bar for the visualization window"""
         menubar = Menu(self)
         self.config(menu=menubar)
-        
+    
         # File menu
         file_menu = Menu(menubar, tearoff=0)
         menubar.add_cascade(label="File", menu=file_menu)
@@ -54,59 +55,76 @@ class CodeVisualizer(tk.Toplevel):
         file_menu.add_command(label="Export Method Map...", command=self.export_method_map)
         file_menu.add_separator()
         file_menu.add_command(label="Close", command=self.destroy)
-        
+    
         # View menu
         view_menu = Menu(menubar, tearoff=0)
         menubar.add_cascade(label="View", menu=view_menu)
         view_menu.add_command(label="Reset View", command=self.reset_view)
         view_menu.add_command(label="Center Graph", command=self.center_graph)
         view_menu.add_separator()
-        
+    
         # Create checkbuttons for toggling panels
         self.show_code_var = tk.BooleanVar(value=True)
         self.show_relationships_var = tk.BooleanVar(value=True)
-        
+    
         view_menu.add_checkbutton(label="Show Code Panel", 
                                variable=self.show_code_var,
                                command=self.toggle_code_panel)
         view_menu.add_checkbutton(label="Show Relationships Panel", 
                                variable=self.show_relationships_var,
                                command=self.toggle_relationships_panel)
-        
+    
         # Graph menu
         graph_menu = Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Graph", menu=graph_menu)
         graph_menu.add_command(label="Run Layout", command=self.run_layout)
-        graph_menu.add_command(label="Show All Method Names", command=lambda: self.set_label_visibility(True))
-        graph_menu.add_command(label="Hide Method Names", command=lambda: self.set_label_visibility(False))
-        
+        graph_menu.add_command(label="Show All Method Names", 
+                              command=lambda: self.set_label_visibility(True))
+        graph_menu.add_command(label="Hide Method Names", 
+                              command=lambda: self.set_label_visibility(False))
+    
+        # Add Layout submenu
+        layout_menu = Menu(graph_menu, tearoff=0)
+        graph_menu.add_cascade(label="Layout Style", menu=layout_menu)
+        layout_menu.add_command(label="Force-Directed", 
+                               command=lambda: self.graph_canvas.run_force_directed_layout())
+        layout_menu.add_command(label="Obsidian-Style", 
+                               command=lambda: self.graph_canvas.run_obsidian_layout(self.visualization_config))
+        layout_menu.add_command(label="Hierarchical", 
+                               command=lambda: self.graph_canvas.run_hierarchical_layout())
+        layout_menu.add_command(label="Circular", 
+                               command=lambda: self.graph_canvas.run_circular_layout())
+    
+        # Add settings command
+        graph_menu.add_separator()
+        graph_menu.add_command(label="Visualization Settings...", command=self.show_visualization_settings)
+    
         # Add search functionality
         search_menu = Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Search", menu=search_menu)
         search_menu.add_command(label="Find Method...", command=self.show_search_dialog)
         search_menu.add_command(label="Find References...", command=self.find_references)
-        
-        # Add navigation menu
-        navigation_menu = Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Navigation", menu=navigation_menu)
-        navigation_menu.add_command(label="Back", command=self.navigate_back, state="disabled")
-        navigation_menu.add_command(label="Forward", command=self.navigate_forward, state="disabled")
-        navigation_menu.add_separator()
-        navigation_menu.add_command(label="History...", command=self.show_history)
+    
+        # Store reference to menubar
+        self.menubar = menubar
 
-        
-        # Update menu items with keyboard shortcuts
-        file_menu.add_command(label="Export Graph... (Ctrl+E)", command=self.export_graph)
-        view_menu.add_command(label="Reset View (Esc)", command=self.reset_view)
-        view_menu.add_command(label="Center Graph (Ctrl+1)", command=self.center_graph)
-        graph_menu.add_command(label="Run Layout (Ctrl+R)", command=self.run_layout)
-        search_menu.add_command(label="Find Method... (Ctrl+F)", command=self.show_search_dialog)
-        navigation_menu.add_command(label="Back (Alt+Left)", command=self.navigate_back, state="disabled")
-        navigation_menu.add_command(label="Forward (Alt+Right)", command=self.navigate_forward, state="disabled")
-        
-        
-        # Store reference to navigation menu
-        self.navigation_menu = navigation_menu
+    
+    def show_visualization_settings(self):
+        """Show visualization settings dialog"""
+        dialog = VisualizationConfigDialog(self, self.visualization_config, self.apply_visualization_config)
+        self.wait_window(dialog)
+
+    def apply_visualization_config(self, config):
+        """Apply visualization configuration"""
+        self.visualization_config = config
+    
+        # Apply to graph canvas
+        self.graph_canvas.apply_config(config)
+    
+        # Apply other UI settings
+        if 'font_size' in config:
+            font_size = config['font_size']
+            self.code_viewer.code_text.configure(font=('Courier', font_size))
     
     def create_main_interface(self):
         """Create the main UI with resizable panels"""
@@ -292,28 +310,41 @@ class CodeVisualizer(tk.Toplevel):
         return frame
     
     def on_graph_selection(self, event):
-        """Handle node selection in graph"""
+        """Handle node selection in graph with improved code integration"""
         selected_node = self.graph_canvas.selected_node
         if not selected_node or selected_node not in self.graph_canvas.nodes:
             return
-            
+        
         node_data = self.graph_canvas.nodes[selected_node]
         if node_data.get('type') != 'method':
             return
-            
+        
         # Extract file and method from node ID
         file_path, method_name = node_data.get('file'), node_data.get('method')
         if not file_path or not method_name:
             return
-            
+        
         # Update current selection
         self.current_file = file_path
         self.current_method = method_name
-        
-        # Update UI
-        self.update_method_details(file_path, method_name)
-        self.update_relationships(file_path, method_name)
-        
+    
+        # Get method information
+        method_info = self.reference_tracker.get_detailed_method_info(file_path, method_name)
+        if not method_info:
+            return
+    
+        # Find references within the method body
+        references = self.find_references_in_method(method_info)
+    
+        # Update code viewer with references for highlighting
+        self.code_viewer.display_method(file_path, method_name, method_info, self.reference_tracker, references)
+    
+        # Highlight related nodes in the graph
+        self.highlight_related_nodes(file_path, method_name, references)
+    
+        # Update relationships panel with enhanced information
+        self.update_relationships_with_context(file_path, method_name, references)
+    
         # Update status bar
         rel_path = os.path.relpath(file_path, self.root_dir) if self.root_dir else file_path
         self.status_var.set(f"Selected: {method_name} in {rel_path}")
@@ -892,3 +923,232 @@ class CodeVisualizer(tk.Toplevel):
         """Find all references to a method"""
         # Similar to search but focuses on references
         pass
+
+# Add to method_visualization.py - New VisualizationConfigDialog class
+
+class VisualizationConfigDialog(tk.Toplevel):
+    """Dialog for configuring visualization options"""
+    
+    def __init__(self, parent, config=None, apply_callback=None):
+        super().__init__(parent)
+        self.title("Visualization Settings")
+        self.geometry("500x600")
+        self.transient(parent)
+        self.grab_set()
+        
+        self.parent = parent
+        self.config = config or {}
+        self.apply_callback = apply_callback
+        
+        # Set up notebook with tabs
+        self.notebook = ttk.Notebook(self)
+        self.notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Create tabs
+        self.appearance_tab = self.create_appearance_tab()
+        self.layout_tab = self.create_layout_tab()
+        self.behavior_tab = self.create_behavior_tab()
+        
+        self.notebook.add(self.appearance_tab, text="Appearance")
+        self.notebook.add(self.layout_tab, text="Layout")
+        self.notebook.add(self.behavior_tab, text="Behavior")
+        
+        # Buttons
+        button_frame = ttk.Frame(self)
+        button_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        ttk.Button(button_frame, text="Apply", command=self.apply_settings).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(button_frame, text="OK", command=self.save_and_close).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(button_frame, text="Cancel", command=self.destroy).pack(side=tk.RIGHT, padx=5)
+        
+        # Initialize values from config
+        self.initialize_values()
+        
+    def create_appearance_tab(self):
+        """Create appearance settings tab"""
+        frame = ttk.Frame(self.notebook, padding=10)
+        
+        # Color scheme
+        ttk.Label(frame, text="Color Scheme:").grid(row=0, column=0, sticky=tk.W, pady=5)
+        self.color_scheme_var = tk.StringVar()
+        color_combo = ttk.Combobox(frame, textvariable=self.color_scheme_var, width=20)
+        color_combo['values'] = ('Default', 'Dark', 'Light', 'Colorful', 'Monochrome')
+        color_combo.grid(row=0, column=1, sticky=tk.W, padx=5)
+        
+        # Node size
+        ttk.Label(frame, text="Node Size:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        self.node_size_var = tk.IntVar()
+        ttk.Scale(frame, from_=8, to=30, variable=self.node_size_var).grid(row=1, column=1, sticky=tk.W, padx=5)
+        
+        # Edge thickness
+        ttk.Label(frame, text="Edge Thickness:").grid(row=2, column=0, sticky=tk.W, pady=5)
+        self.edge_thickness_var = tk.DoubleVar()
+        ttk.Scale(frame, from_=0.5, to=5.0, variable=self.edge_thickness_var).grid(row=2, column=1, sticky=tk.W, padx=5)
+        
+        # Font size
+        ttk.Label(frame, text="Label Font Size:").grid(row=3, column=0, sticky=tk.W, pady=5)
+        self.font_size_var = tk.IntVar()
+        ttk.Scale(frame, from_=8, to=16, variable=self.font_size_var).grid(row=3, column=1, sticky=tk.W, padx=5)
+        
+        # Label visibility options
+        ttk.Label(frame, text="Label Visibility:").grid(row=4, column=0, sticky=tk.W, pady=5)
+        self.label_visibility_var = tk.StringVar()
+        visibility_combo = ttk.Combobox(frame, textvariable=self.label_visibility_var, width=20)
+        visibility_combo['values'] = ('Always Show', 'Show on Hover', 'Show Selected', 'Hide All')
+        visibility_combo.grid(row=4, column=1, sticky=tk.W, padx=5)
+        
+        return frame
+        
+    def create_layout_tab(self):
+        """Create layout settings tab"""
+        frame = ttk.Frame(self.notebook, padding=10)
+        
+        # Auto layout toggle
+        self.auto_layout_var = tk.BooleanVar()
+        ttk.Checkbutton(frame, text="Enable Automatic Layout", 
+                       variable=self.auto_layout_var).grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=5)
+        
+        # Layout algorithm
+        ttk.Label(frame, text="Layout Algorithm:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        self.layout_algorithm_var = tk.StringVar()
+        algorithm_combo = ttk.Combobox(frame, textvariable=self.layout_algorithm_var, width=20)
+        algorithm_combo['values'] = ('Force-Directed', 'Hierarchical', 'Circular', 'Radial', 'Grid')
+        algorithm_combo.grid(row=1, column=1, sticky=tk.W, padx=5)
+        
+        # Layout alignment
+        ttk.Label(frame, text="Alignment:").grid(row=2, column=0, sticky=tk.W, pady=5)
+        self.alignment_var = tk.StringVar()
+        alignment_combo = ttk.Combobox(frame, textvariable=self.alignment_var, width=20)
+        alignment_combo['values'] = ('Center', 'Left-to-Right', 'Top-to-Bottom', 'Bottom-to-Top')
+        alignment_combo.grid(row=2, column=1, sticky=tk.W, padx=5)
+        
+        # Spacing
+        ttk.Label(frame, text="Node Spacing:").grid(row=3, column=0, sticky=tk.W, pady=5)
+        self.node_spacing_var = tk.IntVar()
+        ttk.Scale(frame, from_=50, to=300, variable=self.node_spacing_var).grid(row=3, column=1, sticky=tk.W, padx=5)
+        
+        # Edge length
+        ttk.Label(frame, text="Edge Length:").grid(row=4, column=0, sticky=tk.W, pady=5)
+        self.edge_length_var = tk.IntVar()
+        ttk.Scale(frame, from_=50, to=300, variable=self.edge_length_var).grid(row=4, column=1, sticky=tk.W, padx=5)
+        
+        # Obsidian-like settings section
+        ttk.Separator(frame, orient=tk.HORIZONTAL).grid(row=5, column=0, columnspan=2, sticky=tk.EW, pady=10)
+        ttk.Label(frame, text="Obsidian-like Graph Layout", font=('Helvetica', 10, 'bold')).grid(row=6, column=0, columnspan=2, sticky=tk.W, pady=5)
+        
+        # Centering force
+        ttk.Label(frame, text="Centering Force:").grid(row=7, column=0, sticky=tk.W, pady=5)
+        self.center_force_var = tk.DoubleVar()
+        ttk.Scale(frame, from_=0.0, to=1.0, variable=self.center_force_var).grid(row=7, column=1, sticky=tk.W, padx=5)
+        
+        # Repulsion strength
+        ttk.Label(frame, text="Node Repulsion:").grid(row=8, column=0, sticky=tk.W, pady=5)
+        self.repulsion_var = tk.DoubleVar()
+        ttk.Scale(frame, from_=50, to=500, variable=self.repulsion_var).grid(row=8, column=1, sticky=tk.W, padx=5)
+        
+        # Connection strength
+        ttk.Label(frame, text="Connection Strength:").grid(row=9, column=0, sticky=tk.W, pady=5)
+        self.connection_strength_var = tk.DoubleVar()
+        ttk.Scale(frame, from_=0.01, to=1.0, variable=self.connection_strength_var).grid(row=9, column=1, sticky=tk.W, padx=5)
+        
+        return frame
+        
+    def create_behavior_tab(self):
+        """Create behavior settings tab"""
+        frame = ttk.Frame(self.notebook, padding=10)
+        
+        # Animation speed
+        ttk.Label(frame, text="Animation Speed:").grid(row=0, column=0, sticky=tk.W, pady=5)
+        self.animation_speed_var = tk.DoubleVar()
+        ttk.Scale(frame, from_=0.1, to=2.0, variable=self.animation_speed_var).grid(row=0, column=1, sticky=tk.W, padx=5)
+        
+        # Hover delay
+        ttk.Label(frame, text="Tooltip Delay (ms):").grid(row=1, column=0, sticky=tk.W, pady=5)
+        self.tooltip_delay_var = tk.IntVar()
+        ttk.Scale(frame, from_=100, to=2000, variable=self.tooltip_delay_var).grid(row=1, column=1, sticky=tk.W, padx=5)
+        
+        # Double click action
+        ttk.Label(frame, text="Double-Click Action:").grid(row=2, column=0, sticky=tk.W, pady=5)
+        self.double_click_var = tk.StringVar()
+        double_click_combo = ttk.Combobox(frame, textvariable=self.double_click_var, width=20)
+        double_click_combo['values'] = ('Expand Node', 'Go to Definition', 'Show Details', 'Center View')
+        double_click_combo.grid(row=2, column=1, sticky=tk.W, padx=5)
+        
+        # Selection behavior
+        ttk.Label(frame, text="Selection Mode:").grid(row=3, column=0, sticky=tk.W, pady=5)
+        self.selection_mode_var = tk.StringVar()
+        selection_mode_combo = ttk.Combobox(frame, textvariable=self.selection_mode_var, width=20)
+        selection_mode_combo['values'] = ('Single', 'Multiple', 'Toggle')
+        selection_mode_combo.grid(row=3, column=1, sticky=tk.W, padx=5)
+        
+        # Auto-refresh
+        self.auto_refresh_var = tk.BooleanVar()
+        ttk.Checkbutton(frame, text="Auto-Refresh Graph on Selection", 
+                       variable=self.auto_refresh_var).grid(row=4, column=0, columnspan=2, sticky=tk.W, pady=5)
+        
+        return frame
+        
+    def initialize_values(self):
+        """Initialize values from config"""
+        # Appearance
+        self.color_scheme_var.set(self.config.get('color_scheme', 'Default'))
+        self.node_size_var.set(self.config.get('node_size', 15))
+        self.edge_thickness_var.set(self.config.get('edge_thickness', 1.5))
+        self.font_size_var.set(self.config.get('font_size', 10))
+        self.label_visibility_var.set(self.config.get('label_visibility', 'Show Selected'))
+        
+        # Layout
+        self.auto_layout_var.set(self.config.get('auto_layout', True))
+        self.layout_algorithm_var.set(self.config.get('layout_algorithm', 'Force-Directed'))
+        self.alignment_var.set(self.config.get('alignment', 'Center'))
+        self.node_spacing_var.set(self.config.get('node_spacing', 100))
+        self.edge_length_var.set(self.config.get('edge_length', 150))
+        self.center_force_var.set(self.config.get('center_force', 0.1))
+        self.repulsion_var.set(self.config.get('repulsion', 200))
+        self.connection_strength_var.set(self.config.get('connection_strength', 0.3))
+        
+        # Behavior
+        self.animation_speed_var.set(self.config.get('animation_speed', 1.0))
+        self.tooltip_delay_var.set(self.config.get('tooltip_delay', 500))
+        self.double_click_var.set(self.config.get('double_click_action', 'Go to Definition'))
+        self.selection_mode_var.set(self.config.get('selection_mode', 'Single'))
+        self.auto_refresh_var.set(self.config.get('auto_refresh', False))
+        
+    def get_config(self):
+        """Get config values from UI"""
+        config = {
+            # Appearance
+            'color_scheme': self.color_scheme_var.get(),
+            'node_size': self.node_size_var.get(),
+            'edge_thickness': self.edge_thickness_var.get(),
+            'font_size': self.font_size_var.get(),
+            'label_visibility': self.label_visibility_var.get(),
+            
+            # Layout
+            'auto_layout': self.auto_layout_var.get(),
+            'layout_algorithm': self.layout_algorithm_var.get(),
+            'alignment': self.alignment_var.get(),
+            'node_spacing': self.node_spacing_var.get(),
+            'edge_length': self.edge_length_var.get(),
+            'center_force': self.center_force_var.get(),
+            'repulsion': self.repulsion_var.get(),
+            'connection_strength': self.connection_strength_var.get(),
+            
+            # Behavior
+            'animation_speed': self.animation_speed_var.get(),
+            'tooltip_delay': self.tooltip_delay_var.get(),
+            'double_click_action': self.double_click_var.get(),
+            'selection_mode': self.selection_mode_var.get(),
+            'auto_refresh': self.auto_refresh_var.get(),
+        }
+        return config
+        
+    def apply_settings(self):
+        """Apply settings without closing dialog"""
+        if self.apply_callback:
+            self.apply_callback(self.get_config())
+            
+    def save_and_close(self):
+        """Save settings and close dialog"""
+        self.apply_settings()
+        self.destroy()

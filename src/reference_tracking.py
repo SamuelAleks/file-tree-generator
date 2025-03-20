@@ -4,6 +4,7 @@ Provides integration between the GUI, parser, and file tree generation.
 """
 
 import os
+import tkinter as tk
 from csharp_parser import CSharpReferenceTracker
 
 class ReferenceTrackingManager:
