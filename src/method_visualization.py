@@ -704,23 +704,34 @@ class CodeVisualizer(tk.Toplevel):
     
     def build_graph_for_method(self, file_path, method_name):
         """Build and display graph starting from specified method"""
-        # Get call graph data
-        graph_data = self.reference_tracker.get_method_call_graph(file_path, method_name)
-        if not graph_data:
-            messagebox.showerror("Error", f"Could not build graph for {method_name}")
-            return
+        try:
+            # Get call graph data - make sure to access tracker attribute
+            if hasattr(self.reference_tracker, 'tracker'):
+                # For ReferenceTrackingManager
+                graph_data = self.reference_tracker.tracker.get_method_call_graph(file_path, method_name)
+            else:
+                # Direct access if it's already a CSharpReferenceTracker
+                graph_data = self.reference_tracker.get_method_call_graph(file_path, method_name)
             
-        # Update graph canvas
-        self.graph_canvas.set_graph(graph_data['nodes'], graph_data['edges'])
-        self.graph_canvas.draw_graph()
+            if not graph_data:
+                messagebox.showerror("Error", f"Could not build graph for {method_name}")
+                return
+            
+            # Update graph canvas
+            self.graph_canvas.set_graph(graph_data['nodes'], graph_data['edges'])
+            self.graph_canvas.draw_graph()
         
-        # Select the starting node
-        node_id = f"{file_path}::{method_name}"
-        self.graph_canvas.selected_node = node_id
-        self.graph_canvas.center_on_node(node_id)
+            # Select the starting node
+            node_id = f"{file_path}::{method_name}"
+            self.graph_canvas.selected_node = node_id
+            self.graph_canvas.center_on_node(node_id)
         
-        # Update UI
-        self.on_graph_selection(None)
+            # Update UI
+            self.on_graph_selection(None)
+        except Exception as e:
+            error_msg = f"Error building graph: {str(e)}"
+            print(error_msg)  # Print to console for debugging
+            messagebox.showerror("Graph Error", error_msg)
     
     # Additional methods for menu actions
     def export_graph(self):

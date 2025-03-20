@@ -869,25 +869,26 @@ class FileTreeGeneratorApp:
         dialog.geometry("600x500")
         dialog.transient(self.root)
         dialog.grab_set()
-    
+
         # File selection frame
         file_frame = ttk.LabelFrame(dialog, text="Select File", padding="10")
         file_frame.pack(fill=tk.X, padx=10, pady=10)
-    
+
         # File listbox with scrollbar
         file_list_frame = ttk.Frame(file_frame)
         file_list_frame.pack(fill=tk.BOTH, expand=True)
-    
+
         file_scrollbar = ttk.Scrollbar(file_list_frame)
         file_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-    
-        file_listbox = tk.Listbox(file_list_frame, yscrollcommand=file_scrollbar.set)
+
+        # Add exportselection=0 to prevent selection from being lost when focus shifts
+        file_listbox = tk.Listbox(file_list_frame, yscrollcommand=file_scrollbar.set, exportselection=0)
         file_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-    
+
         file_scrollbar.config(command=file_listbox.yview)
-    
+
         # Add files to list
-        for file_path in sorted(self.reference_tracker.file_info.keys()):
+        for file_path in sorted(self.reference_tracker.tracker.file_info.keys()):
             # Only add C# files
             if file_path.endswith('.cs'):
                 # Get relative path if possible
@@ -899,90 +900,112 @@ class FileTreeGeneratorApp:
                         file_listbox.insert(tk.END, file_path)
                 else:
                     file_listbox.insert(tk.END, file_path)
-    
+
         # Method selection frame
         method_frame = ttk.LabelFrame(dialog, text="Select Method", padding="10")
         method_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-    
+
         # Method listbox with scrollbar
         method_list_frame = ttk.Frame(method_frame)
         method_list_frame.pack(fill=tk.BOTH, expand=True)
-    
+
         method_scrollbar = ttk.Scrollbar(method_list_frame)
         method_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-    
-        method_listbox = tk.Listbox(method_list_frame, yscrollcommand=method_scrollbar.set)
+
+        # Add exportselection=0 and selectmode=tk.SINGLE to maintain selection
+        method_listbox = tk.Listbox(method_list_frame, yscrollcommand=method_scrollbar.set,
+                                   selectmode=tk.SINGLE, exportselection=0)
         method_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-    
+
         method_scrollbar.config(command=method_listbox.yview)
-    
+
         # Function to update method list when file selection changes
         def update_method_list(event):
             # Clear existing methods
             method_listbox.delete(0, tk.END)
-        
+    
             # Get selected file
             selected_indices = file_listbox.curselection()
             if not selected_indices:
                 return
-            
-            file_name = file_listbox.get(selected_indices[0])
         
+            file_name = file_listbox.get(selected_indices[0])
+    
             # Convert to absolute path if needed
             file_path = file_name
             if self.root_dir_var.get() and not os.path.isabs(file_path):
                 file_path = os.path.join(self.root_dir_var.get(), file_path)
-            
+        
             # Get methods in file
             methods = []
-            if file_path in self.reference_tracker.file_info:
-                file_info = self.reference_tracker.file_info[file_path]
-            
+            if file_path in self.reference_tracker.tracker.file_info:
+                file_info = self.reference_tracker.tracker.file_info[file_path]
+        
                 if 'method_details' in file_info:
                     methods = sorted(file_info['method_details'].keys())
                 elif 'methods' in file_info:
                     methods = sorted(file_info['methods'])
-                
+            
             # Add methods to list
             for method in methods:
                 method_listbox.insert(tk.END, method)
-    
+
         # Bind file selection event
         file_listbox.bind('<<ListboxSelect>>', update_method_list)
-    
+
         # Button frame
         button_frame = ttk.Frame(dialog, padding="10")
         button_frame.pack(fill=tk.X, padx=10, pady=10)
-    
+
         ttk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT, padx=5)
-    
+
         # Function to launch visualization
         def launch_visualization():
-            # Get selected file and method
-            file_indices = file_listbox.curselection()
-            method_indices = method_listbox.curselection()
+            try:
+                # Get selected file and method
+                file_indices = file_listbox.curselection()
+                method_indices = method_listbox.curselection()
         
-            if not file_indices or not method_indices:
-                messagebox.showwarning("Selection Required", "Please select both a file and a method")
-                return
+                if not file_indices or not method_indices:
+                    messagebox.showwarning("Selection Required", "Please select both a file and a method")
+                    return
             
-            file_name = file_listbox.get(file_indices[0])
-            method_name = method_listbox.get(method_indices[0])
+                file_name = file_listbox.get(file_indices[0])
+                method_name = method_listbox.get(method_indices[0])
         
-            # Convert to absolute path if needed
-            file_path = file_name
-            if self.root_dir_var.get() and not os.path.isabs(file_path):
-                file_path = os.path.join(self.root_dir_var.get(), file_path)
+                # Convert to absolute path if needed
+                file_path = file_name
+                if self.root_dir_var.get() and not os.path.isabs(file_path):
+                    file_path = os.path.join(self.root_dir_var.get(), file_path)
             
-            # Close dialog
-            dialog.destroy()
+                # Close dialog
+                dialog.destroy()
         
-            # Launch visualization
-            visualizer = CodeVisualizer(self.root, self.reference_tracker, self.root_dir_var.get())
-            visualizer.build_graph_for_method(file_path, method_name)
-    
+                # Launch visualization with error handling
+                self.log(f"Launching visualization for {method_name} in {file_path}")
+            
+                # Check if we're using the InteractiveCanvasVisualizer directly or the CodeVisualizer class
+                if VISUALIZATION_AVAILABLE:
+                    # When imported as "from code_visualization import InteractiveCanvasVisualizer as CodeVisualizer"
+                    # it needs only 2 arguments (reference_tracker, log_callback)
+                    visualizer = CodeVisualizer(self.reference_tracker, self.log)
+                    graph = visualizer.create_method_reference_graph(file_path, method_name, max_depth=2)
+                    if graph:
+                        visualizer.visualize_graph(graph, f"Method: {method_name}", self.root)
+                    else:
+                        messagebox.showerror("Error", "Failed to create method reference graph.")
+                else:
+                    # This branch would be used if we were using a different CodeVisualizer implementation
+                    self.log("Visualization is not available. Please install required libraries.")
+                    messagebox.showinfo("Information", "Visualization is not available. Please install required libraries.")
+                
+            except Exception as e:
+                self.log(f"Error launching visualization: {str(e)}")
+                messagebox.showerror("Visualization Error", 
+                                   f"Could not launch visualization: {str(e)}")
+
         ttk.Button(button_frame, text="Visualize", command=launch_visualization).pack(side=tk.RIGHT, padx=5)
-    
+
         # Center dialog
         dialog.update_idletasks()
         width = dialog.winfo_width()
@@ -1123,61 +1146,61 @@ class FileTreeGeneratorApp:
                 messagebox.showerror("Error", 
                                    "Visualization module not found. Install required libraries.")
                 return
-        
+    
             # Check if reference tracking is enabled
             if not self.reference_tracking_var.get():
                 messagebox.showinfo("Information", "Please enable reference tracking first.")
                 return
-            
+        
             # Ensure reference tracker is initialized
             if not self.ensure_reference_tracker():
                 return
-            
+        
             # Create dialog to select a file and method
             select_dialog = tk.Toplevel(self.root)
             select_dialog.title("Select File and Method")
             select_dialog.geometry("600x400")
             select_dialog.transient(self.root)
             select_dialog.grab_set()
-        
+    
             # File selection
             file_frame = ttk.LabelFrame(select_dialog, text="Select File", padding="10")
             file_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
+    
             # File list with scrollbar
             file_list_frame = ttk.Frame(file_frame)
             file_list_frame.pack(fill=tk.BOTH, expand=True)
-        
+    
             file_scrollbar = ttk.Scrollbar(file_list_frame)
             file_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
+    
             file_listbox = tk.Listbox(file_list_frame, yscrollcommand=file_scrollbar.set)
             file_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        
+    
             file_scrollbar.config(command=file_listbox.yview)
-        
+    
             # Add C# files to the list
             cs_files = [f for f in self.selected_files if f.endswith('.cs')]
             for file in sorted(cs_files):
                 file_listbox.insert(tk.END, file)
-        
+    
             # Method selection
             method_frame = ttk.LabelFrame(select_dialog, text="Select Method", padding="10")
             method_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
+    
             # Method list with scrollbar
             method_list_frame = ttk.Frame(method_frame)
             method_list_frame.pack(fill=tk.BOTH, expand=True)
-        
+    
             method_scrollbar = ttk.Scrollbar(method_list_frame)
             method_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
+    
             method_listbox = tk.Listbox(method_list_frame, yscrollcommand=method_scrollbar.set, 
                                        selectmode=tk.SINGLE, exportselection=0)
             method_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        
+    
             method_scrollbar.config(command=method_listbox.yview)
-        
+    
             # Function to update method list when file is selected
             def update_method_list(event=None):
                 method_listbox.delete(0, tk.END)
@@ -1185,9 +1208,9 @@ class FileTreeGeneratorApp:
                 selected_indices = file_listbox.curselection()
                 if not selected_indices:
                     return
-    
+
                 file_path = file_listbox.get(selected_indices[0])
-    
+
                 # Add debug logging
                 self.log(f"Selected file: {file_path}")
                 if hasattr(self.reference_tracker, 'tracker') and file_path in self.reference_tracker.tracker.file_info:
@@ -1210,28 +1233,26 @@ class FileTreeGeneratorApp:
                 except Exception as e:
                     self.log(f"Error getting methods: {str(e)}")
                     messagebox.showerror("Error", f"Could not get methods: {str(e)}")
-
-
-        
+    
             # Bind file selection event
             file_listbox.bind('<<ListboxSelect>>', update_method_list)
-        
+    
             # Buttons
             button_frame = ttk.Frame(select_dialog)
             button_frame.pack(fill=tk.X, padx=10, pady=10)
-        
+    
             cancel_button = ttk.Button(button_frame, text="Cancel", 
                                       command=select_dialog.destroy)
             cancel_button.pack(side=tk.RIGHT, padx=5)
-        
+    
             show_all_button = ttk.Button(button_frame, text="Show All Methods", 
                                        command=lambda: visualize_methods(None))
             show_all_button.pack(side=tk.RIGHT, padx=5)
-        
+    
             visualize_button = ttk.Button(button_frame, text="Visualize Method", 
                                         command=lambda: visualize_methods())
             visualize_button.pack(side=tk.RIGHT, padx=5)
-        
+    
             # Function to handle visualization
             def visualize_methods(method_name=None):
                 try:
@@ -1239,31 +1260,31 @@ class FileTreeGeneratorApp:
                     if not selected_indices:
                         messagebox.showinfo("Information", "Please select a file.")
                         return
-                    
+        
                     file_path = file_listbox.get(selected_indices[0])
-                
+    
                     if method_name is None:
                         # If we're showing all methods or a specific method
                         method_indices = method_listbox.curselection()
                         if method_indices:
                             method_name = method_listbox.get(method_indices[0])
-                
-                    # Create visualizer
+    
+                    # Create visualizer - use only the two required arguments
                     visualizer = CodeVisualizer(self.reference_tracker, self.log)
-                
+    
                     # Determine reference depth
                     depth = 1
-                
+    
                     # Create graph
                     self.log(f"Generating method reference graph for {os.path.basename(file_path)}...")
                     graph = visualizer.create_method_reference_graph(file_path, method_name, max_depth=depth)
-                
+    
                     if graph:
                         # Show visualization
                         title = f"Method References - {os.path.basename(file_path)}"
                         if method_name:
                             title += f" - {method_name}"
-                        
+            
                         visualizer.visualize_graph(graph, title, self.root)
                         select_dialog.destroy()
                     else:
@@ -1271,7 +1292,7 @@ class FileTreeGeneratorApp:
                 except Exception as e:
                     self.log(f"Error visualizing methods: {str(e)}")
                     messagebox.showerror("Error", f"Error visualizing methods: {str(e)}")
-        
+    
             # Center dialog
             select_dialog.update_idletasks()
             width = select_dialog.winfo_width()
@@ -1279,7 +1300,7 @@ class FileTreeGeneratorApp:
             x = (select_dialog.winfo_screenwidth() // 2) - (width // 2)
             y = (select_dialog.winfo_screenheight() // 2) - (height // 2)
             select_dialog.geometry(f'{width}x{height}+{x}+{y}')
-    
+
         except Exception as e:
             self.log(f"Error in show_method_reference_graph: {str(e)}")
             messagebox.showerror("Error", f"Error visualizing method references: {str(e)}")
@@ -1292,46 +1313,46 @@ class FileTreeGeneratorApp:
                 messagebox.showerror("Error", 
                                    "Visualization module not found. Install required libraries.")
                 return
-        
+    
             # Check if reference tracking is enabled
             if not self.reference_tracking_var.get():
                 messagebox.showinfo("Information", "Please enable reference tracking first.")
                 return
-            
+        
             # Ensure reference tracker is initialized
             if not self.ensure_reference_tracker():
                 return
-            
+        
             # Create dialog to select classes
             select_dialog = tk.Toplevel(self.root)
             select_dialog.title("Select Classes")
             select_dialog.geometry("600x400")
             select_dialog.transient(self.root)
             select_dialog.grab_set()
-        
+    
             # Class selection
             class_frame = ttk.LabelFrame(select_dialog, text="Select Classes", padding="10")
             class_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
+    
             # Class list with scrollbar
             class_list_frame = ttk.Frame(class_frame)
             class_list_frame.pack(fill=tk.BOTH, expand=True)
-        
+    
             class_scrollbar = ttk.Scrollbar(class_list_frame)
             class_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
+    
             class_listbox = tk.Listbox(class_list_frame, yscrollcommand=class_scrollbar.set, selectmode=tk.MULTIPLE)
             class_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        
+    
             class_scrollbar.config(command=class_listbox.yview)
-        
+    
             # Get all classes from reference tracker - using try-except to handle potential errors
             all_classes = set()
             try:
                 for file_path, info in self.reference_tracker.tracker.file_info.items():
                     if info.get('is_xaml', False):
                         continue
-                    
+                
                     namespace = info.get('namespace', '')
                     for type_name in info.get('types', []):
                         qualified_name = f"{namespace}.{type_name}" if namespace else type_name
@@ -1339,50 +1360,50 @@ class FileTreeGeneratorApp:
             except Exception as e:
                 self.log(f"Error getting classes: {str(e)}")
                 # Continue with an empty set - the user will see an empty list
-        
+    
             # Add classes to the list
             for class_name in sorted(all_classes):
                 class_listbox.insert(tk.END, class_name)
-        
+    
             # Search field
             search_frame = ttk.Frame(class_frame)
             search_frame.pack(fill=tk.X, pady=(0, 10))
-        
+    
             ttk.Label(search_frame, text="Search:").pack(side=tk.LEFT, padx=(0, 5))
-        
+    
             search_var = tk.StringVar()
             search_entry = ttk.Entry(search_frame, textvariable=search_var)
             search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        
+    
             # Function to update class list based on search
             def update_class_list(*args):
                 search_text = search_var.get().lower()
-            
+        
                 class_listbox.delete(0, tk.END)
-            
+        
                 for class_name in sorted(all_classes):
                     if search_text in class_name.lower():
                         class_listbox.insert(tk.END, class_name)
-        
+    
             # Bind search field events
             search_var.trace_add("write", update_class_list)
-        
+    
             # Buttons
             button_frame = ttk.Frame(select_dialog)
             button_frame.pack(fill=tk.X, padx=10, pady=10)
-        
+    
             cancel_button = ttk.Button(button_frame, text="Cancel", 
                                       command=select_dialog.destroy)
             cancel_button.pack(side=tk.RIGHT, padx=5)
-        
+    
             show_all_button = ttk.Button(button_frame, text="Show All Classes", 
                                        command=lambda: visualize_classes([]))
             show_all_button.pack(side=tk.RIGHT, padx=5)
-        
+    
             visualize_button = ttk.Button(button_frame, text="Visualize Selected", 
                                         command=lambda: visualize_classes())
             visualize_button.pack(side=tk.RIGHT, padx=5)
-        
+    
             # Function to handle visualization
             def visualize_classes(selected_classes=None):
                 try:
@@ -1390,10 +1411,10 @@ class FileTreeGeneratorApp:
                         # Get selected classes
                         selected_indices = class_listbox.curselection()
                         selected_classes = [class_listbox.get(i) for i in selected_indices]
-                
-                    # Create visualizer
+    
+                    # Create visualizer with only the required arguments
                     visualizer = CodeVisualizer(self.reference_tracker, self.log)
-                
+    
                     # Create graph
                     self.log("Generating class hierarchy graph...")
                     graph = visualizer.create_class_reference_graph(
@@ -1401,7 +1422,7 @@ class FileTreeGeneratorApp:
                         selected_classes,
                         max_depth=2
                     )
-                
+    
                     if graph:
                         # Show visualization
                         title = "Class Hierarchy Graph"
@@ -1412,7 +1433,7 @@ class FileTreeGeneratorApp:
                 except Exception as e:
                     self.log(f"Error visualizing classes: {str(e)}")
                     messagebox.showerror("Error", f"Error visualizing classes: {str(e)}")
-        
+    
             # Center dialog
             select_dialog.update_idletasks()
             width = select_dialog.winfo_width()
@@ -1420,7 +1441,7 @@ class FileTreeGeneratorApp:
             x = (select_dialog.winfo_screenwidth() // 2) - (width // 2)
             y = (select_dialog.winfo_screenheight() // 2) - (height // 2)
             select_dialog.geometry(f'{width}x{height}+{x}+{y}')
-    
+
         except Exception as e:
             self.log(f"Error in show_class_hierarchy_graph: {str(e)}")
             messagebox.showerror("Error", f"Error visualizing class hierarchy: {str(e)}")
