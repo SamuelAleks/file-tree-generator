@@ -1216,3 +1216,482 @@ class InteractiveCanvasVisualizer:
                 
         except Exception as e:
             self.log(f"Error exporting graph: {str(e)}")
+
+class InteractiveCodeViewer(ttk.Frame):
+    """Interactive code viewer with syntax highlighting and clickable references"""
+    
+    def __init__(self, parent, on_reference_click=None):
+        super().__init__(parent)
+        
+        self.parent = parent
+        self.on_reference_click = on_reference_click
+        
+        # Create UI components
+        self.create_ui()
+        
+        # Current file/method being displayed
+        self.current_file = None
+        self.current_method = None
+        
+        # Track all method references for click handling
+        self.method_references = []  # List of (start_pos, end_pos, target_file, target_method)
+        
+    def create_ui(self):
+        """Create the UI components"""
+        # Method info area (displays signature, etc.)
+        self.info_frame = ttk.Frame(self)
+        self.info_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        self.method_name_var = tk.StringVar()
+        self.method_signature_var = tk.StringVar()
+        
+        ttk.Label(self.info_frame, textvariable=self.method_name_var, 
+                 font=('Helvetica', 12, 'bold')).pack(anchor=tk.W)
+        ttk.Label(self.info_frame, textvariable=self.method_signature_var, 
+                 font=('Helvetica', 10)).pack(anchor=tk.W)
+        
+        # Create horizontal separator
+        ttk.Separator(self, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=5)
+        
+        # Create code view area with line numbers
+        self.code_frame = ttk.Frame(self)
+        self.code_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # Line numbers canvas
+        self.line_canvas = tk.Canvas(self.code_frame, width=40, bg='#f0f0f0')
+        self.line_canvas.pack(side=tk.LEFT, fill=tk.Y)
+        
+        # Text widget for code
+        self.code_text = tk.Text(self.code_frame, wrap=tk.NONE, font=('Courier', 10),
+                                bg='#ffffff', fg='#000000')
+        self.code_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # Configure tags for syntax highlighting
+        self.configure_tags()
+        
+        # Add scrollbars
+        self.yscrollbar = ttk.Scrollbar(self.code_frame, orient=tk.VERTICAL, 
+                                       command=self.code_text.yview)
+        self.yscrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.xscrollbar = ttk.Scrollbar(self, orient=tk.HORIZONTAL, 
+                                       command=self.code_text.xview)
+        self.xscrollbar.pack(side=tk.BOTTOM, fill=tk.X)
+        
+        self.code_text.configure(xscrollcommand=self.xscrollbar.set, 
+                                yscrollcommand=self.yscrollbar.set)
+        
+        # Bind events
+        self.code_text.bind('<KeyRelease>', self.update_line_numbers)
+        self.code_text.bind('<MouseWheel>', self.update_line_numbers)
+        self.code_text.bind('<Button-1>', self.on_text_click)
+        
+        # Make text read-only initially
+        self.code_text.config(state=tk.DISABLED)
+    
+    def configure_tags(self):
+        """Configure tags for syntax highlighting"""
+        # Basic syntax highlighting
+        self.code_text.tag_configure('keyword', foreground='blue')
+        self.code_text.tag_configure('string', foreground='green')
+        self.code_text.tag_configure('comment', foreground='gray')
+        self.code_text.tag_configure('type', foreground='teal')
+        
+        # Method references
+        self.code_text.tag_configure('method_call', foreground='purple')
+        self.code_text.tag_configure('clickable', foreground='purple', underline=True)
+        self.code_text.tag_configure('current_method', foreground='red', underline=True)
+        
+        # Highlight selected line
+        self.code_text.tag_configure('highlight_line', background='#ffffcc')
+    
+    def display_method(self, file_path, method_name, method_info, reference_tracker):
+        """Display a method with syntax highlighting and clickable references"""
+        # Store current method info
+        self.current_file = file_path
+        self.current_method = method_name
+        
+        # Clear reference tracking
+        self.method_references = []
+        
+        # Update method info labels
+        class_name = method_info.get('class', '')
+        namespace = method_info.get('namespace', '')
+        
+        if namespace and class_name:
+            self.method_name_var.set(f"{namespace}.{class_name}.{method_name}")
+        elif class_name:
+            self.method_name_var.set(f"{class_name}.{method_name}")
+        else:
+            self.method_name_var.set(method_name)
+            
+        self.method_signature_var.set(method_info.get('signature', ''))
+        
+        # Update code display
+        self.code_text.config(state=tk.NORMAL)
+        self.code_text.delete('1.0', tk.END)
+        
+        # Get method body
+        method_body = method_info.get('body', '')
+        if method_body:
+            self.code_text.insert('1.0', method_body)
+            
+            # Apply syntax highlighting
+            self.apply_syntax_highlighting(method_body)
+            
+            # Highlight method calls with clickable references
+            self.highlight_method_calls(method_body, method_info, reference_tracker)
+            
+        # Make text read-only again
+        self.code_text.config(state=tk.DISABLED)
+        
+        # Update line numbers
+        self.update_line_numbers()
+    
+    def apply_syntax_highlighting(self, code):
+        """Apply basic syntax highlighting to code text"""
+        # Keywords
+        keywords = ['public', 'private', 'protected', 'internal', 'static', 'void', 'class',
+                   'int', 'string', 'bool', 'double', 'float', 'return', 'new', 'if', 'else',
+                   'for', 'foreach', 'while', 'do', 'switch', 'case', 'default', 'try', 'catch',
+                   'finally', 'throw', 'using', 'namespace', 'interface', 'abstract', 'virtual',
+                   'override', 'readonly', 'const', 'var', 'delegate', 'event', 'async', 'await']
+                   
+        for keyword in keywords:
+            start_pos = '1.0'
+            while True:
+                start_pos = self.code_text.search(r'\b' + keyword + r'\b', start_pos, tk.END, regexp=True)
+                if not start_pos:
+                    break
+                end_pos = f"{start_pos}+{len(keyword)}c"
+                self.code_text.tag_add('keyword', start_pos, end_pos)
+                start_pos = end_pos
+                
+        # Strings
+        start_pos = '1.0'
+        while True:
+            start_pos = self.code_text.search(r'"[^"]*"', start_pos, tk.END, regexp=True)
+            if not start_pos:
+                break
+            content = self.code_text.get(start_pos, tk.END)
+            match = re.search(r'"[^"]*"', content)
+            if match:
+                end_pos = f"{start_pos}+{len(match.group(0))}c"
+                self.code_text.tag_add('string', start_pos, end_pos)
+                start_pos = end_pos
+            else:
+                break
+                
+        # Comments
+        start_pos = '1.0'
+        while True:
+            start_pos = self.code_text.search(r'//.*$', start_pos, tk.END, regexp=True)
+            if not start_pos:
+                break
+            line = int(float(start_pos))
+            end_pos = f"{line}.end"
+            self.code_text.tag_add('comment', start_pos, end_pos)
+            start_pos = f"{line + 1}.0"
+    
+    def highlight_method_calls(self, code, method_info, reference_tracker):
+        """Highlight method calls with clickable references"""
+        # Highlight calls to other methods
+        for call_info in method_info.get('calls', []):
+            # Get call details
+            target_method = call_info.get('method', '')
+            target_file = call_info.get('target_file', '')
+            
+            if not target_method:
+                continue
+                
+            # Find all occurrences of this method call in the code
+            pattern = r'\b' + re.escape(call_info.get('object', '')) + r'\.' + re.escape(target_method) + r'\s*\('
+            
+            start_pos = '1.0'
+            while True:
+                start_pos = self.code_text.search(pattern, start_pos, tk.END, regexp=True)
+                if not start_pos:
+                    break
+                    
+                # Get positions of object and method
+                dot_pos = self.code_text.search(r'\.', start_pos, f"{start_pos}+{len(pattern)}c")
+                if not dot_pos:
+                    start_pos = f"{start_pos}+1c"
+                    continue
+                    
+                method_start = f"{dot_pos}+1c"
+                method_end = f"{method_start}+{len(target_method)}c"
+                
+                # Highlight method name
+                self.code_text.tag_add('method_call', method_start, method_end)
+                
+                # Make clickable if target file exists
+                if target_file:
+                    self.code_text.tag_add('clickable', method_start, method_end)
+                    
+                    # Store reference for click handling
+                    self.method_references.append({
+                        'start': method_start,
+                        'end': method_end,
+                        'file': target_file,
+                        'method': target_method
+                    })
+                
+                start_pos = method_end
+        
+        # Also highlight other references that might be in the code
+        # (e.g., method calls without object references)
+        self.highlight_additional_references(code, reference_tracker)
+    
+    def highlight_additional_references(self, code, reference_tracker):
+        """Find and highlight additional method references in the code"""
+        # Get all method names in the project
+        all_methods = set()
+        for file_info in reference_tracker.file_info.values():
+            if 'methods' in file_info:
+                all_methods.update(file_info['methods'])
+        
+        # Highlight method names that are not already highlighted
+        for method_name in all_methods:
+            # Skip very short method names to avoid false positives
+            if len(method_name) < 3:
+                continue
+                
+            # Skip if it's the current method
+            if method_name == self.current_method:
+                continue
+                
+            # Search for method name followed by parenthesis
+            pattern = r'\b' + re.escape(method_name) + r'\s*\('
+            
+            start_pos = '1.0'
+            while True:
+                start_pos = self.code_text.search(pattern, start_pos, tk.END, regexp=True)
+                if not start_pos:
+                    break
+                    
+                # Check if this position is already tagged
+                tags = self.code_text.tag_names(start_pos)
+                if 'method_call' in tags or 'string' in tags or 'comment' in tags:
+                    # Skip if already highlighted or in string/comment
+                    start_pos = f"{start_pos}+1c"
+                    continue
+                    
+                method_end = f"{start_pos}+{len(method_name)}c"
+                
+                # Highlight as a potential method reference
+                self.code_text.tag_add('method_call', start_pos, method_end)
+                
+                # Try to find the method in the codebase
+                target_file = None
+                for file_path, file_info in reference_tracker.file_info.items():
+                    if 'methods' in file_info and method_name in file_info['methods']:
+                        target_file = file_path
+                        break
+                
+                if target_file:
+                    self.code_text.tag_add('clickable', start_pos, method_end)
+                    
+                    # Store reference for click handling
+                    self.method_references.append({
+                        'start': start_pos,
+                        'end': method_end,
+                        'file': target_file,
+                        'method': method_name
+                    })
+                
+                start_pos = method_end
+    
+    def update_line_numbers(self, event=None):
+        """Update line numbers in the canvas"""
+        self.line_canvas.delete("all")
+        
+        # Get visible lines
+        first_line = int(float(self.code_text.index("@0,0")))
+        last_line = int(float(self.code_text.index(f"@0,{self.code_text.winfo_height()}")))
+        
+        # Draw line numbers
+        for i in range(first_line, last_line + 1):
+            y = self.code_text.dlineinfo(f"{i}.0")
+            if y:
+                self.line_canvas.create_text(20, y[1], anchor="n", text=i, font=('Courier', 10))
+    
+    def on_text_click(self, event):
+        """Handle click on text - check if a method reference was clicked"""
+        # Get click position
+        index = self.code_text.index(f"@{event.x},{event.y}")
+        
+        # Check if the position is within any method reference
+        for ref in self.method_references:
+            start = ref['start']
+            end = ref['end']
+            
+            # Convert to float values for comparison
+            start_val = float(start)
+            end_val = float(end)
+            click_val = float(index)
+            
+            if start_val <= click_val <= end_val:
+                # Reference was clicked
+                if self.on_reference_click:
+                    self.on_reference_click(ref['file'], ref['method'])
+                return
+    
+    def highlight_line(self, line_number):
+        """Highlight a specific line number"""
+        # Remove existing line highlights
+        self.code_text.tag_remove('highlight_line', '1.0', tk.END)
+        
+        # Highlight the specified line
+        self.code_text.tag_add('highlight_line', f"{line_number}.0", f"{line_number + 1}.0")
+        
+        # Ensure the line is visible
+        self.code_text.see(f"{line_number}.0")
+
+class MethodDocPanel(ttk.Frame):
+    """Panel to show method documentation and additional info"""
+    
+    def __init__(self, parent):
+        super().__init__(parent)
+        
+        # Create UI components
+        self.create_ui()
+    
+    def create_ui(self):
+        """Create UI components"""
+        # Create notebook for different sections
+        self.notebook = ttk.Notebook(self)
+        self.notebook.pack(fill=tk.BOTH, expand=True)
+        
+        # Create documentation tab
+        self.doc_frame = ttk.Frame(self.notebook)
+        self.notebook.add(self.doc_frame, text="Documentation")
+        
+        # Documentation text
+        self.doc_text = tk.Text(self.doc_frame, wrap=tk.WORD, height=10,
+                              font=('Helvetica', 10))
+        self.doc_text.pack(fill=tk.BOTH, expand=True)
+        
+        # Parameters tab
+        self.param_frame = ttk.Frame(self.notebook)
+        self.notebook.add(self.param_frame, text="Parameters")
+        
+        # Parameters treeview
+        self.param_tree = ttk.Treeview(self.param_frame, columns=('type', 'name', 'desc'),
+                                     show='headings')
+        self.param_tree.pack(fill=tk.BOTH, expand=True)
+        
+        self.param_tree.heading('type', text='Type')
+        self.param_tree.heading('name', text='Name')
+        self.param_tree.heading('desc', text='Description')
+        
+        # Statistics tab
+        self.stats_frame = ttk.Frame(self.notebook)
+        self.notebook.add(self.stats_frame, text="Statistics")
+        
+        # Statistics display - grid layout
+        self.stats_grid = ttk.Frame(self.stats_frame)
+        self.stats_grid.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Complexity
+        ttk.Label(self.stats_grid, text="Complexity:").grid(row=0, column=0, sticky=tk.W, pady=2)
+        self.complexity_var = tk.StringVar()
+        ttk.Label(self.stats_grid, textvariable=self.complexity_var).grid(row=0, column=1, sticky=tk.W, pady=2)
+        
+        # Lines
+        ttk.Label(self.stats_grid, text="Lines:").grid(row=1, column=0, sticky=tk.W, pady=2)
+        self.lines_var = tk.StringVar()
+        ttk.Label(self.stats_grid, textvariable=self.lines_var).grid(row=1, column=1, sticky=tk.W, pady=2)
+        
+        # Called by
+        ttk.Label(self.stats_grid, text="Called by:").grid(row=2, column=0, sticky=tk.W, pady=2)
+        self.called_by_var = tk.StringVar()
+        ttk.Label(self.stats_grid, textvariable=self.called_by_var).grid(row=2, column=1, sticky=tk.W, pady=2)
+        
+        # Calls
+        ttk.Label(self.stats_grid, text="Calls:").grid(row=3, column=0, sticky=tk.W, pady=2)
+        self.calls_var = tk.StringVar()
+        ttk.Label(self.stats_grid, textvariable=self.calls_var).grid(row=3, column=1, sticky=tk.W, pady=2)
+    
+    def update_with_method(self, method_info):
+        """Update panel with method information"""
+        # Update documentation tab
+        self.doc_text.config(state=tk.NORMAL)
+        self.doc_text.delete('1.0', tk.END)
+        
+        # Extract documentation from method body
+        doc_text = self.extract_documentation(method_info.get('body', ''))
+        if doc_text:
+            self.doc_text.insert('1.0', doc_text)
+        else:
+            self.doc_text.insert('1.0', "No documentation available.")
+            
+        self.doc_text.config(state=tk.DISABLED)
+        
+        # Update parameters tab
+        for item in self.param_tree.get_children():
+            self.param_tree.delete(item)
+            
+        # Add parameters
+        for param in method_info.get('parameters', []):
+            param_type = param.get('type', '')
+            param_name = param.get('name', '')
+            param_desc = ''  # Extract from documentation if available
+            
+            self.param_tree.insert('', tk.END, values=(param_type, param_name, param_desc))
+        
+        # Update statistics
+        # Calculate complexity (simple estimate based on control structures)
+        body = method_info.get('body', '')
+        complexity = 1  # Base complexity
+        complexity += body.count('if ') 
+        complexity += body.count('for ') 
+        complexity += body.count('foreach ') 
+        complexity += body.count('while ') 
+        complexity += body.count('case ') 
+        complexity += body.count('catch ')
+        
+        self.complexity_var.set(str(complexity))
+        
+        # Count lines
+        lines = body.count('\n') + 1
+        self.lines_var.set(str(lines))
+        
+        # Count references
+        calls_count = len(method_info.get('calls', []))
+        self.calls_var.set(str(calls_count))
+        
+        called_by_count = len(method_info.get('called_by', []))
+        self.called_by_var.set(str(called_by_count))
+    
+    def extract_documentation(self, method_body):
+        """Extract documentation comments from method body"""
+        # Look for C# XML documentation comments
+        lines = method_body.split('\n')
+        doc_lines = []
+        in_doc = False
+        
+        for line in lines:
+            line = line.strip()
+            if '///' in line:
+                # Remove /// and trim
+                doc_line = line.replace('///', '').strip()
+                doc_lines.append(doc_line)
+                in_doc = True
+            elif in_doc and not line:
+                # Keep blank lines in documentation
+                doc_lines.append('')
+            elif in_doc:
+                # End of documentation block
+                break
+                
+        # Process XML tags if present
+        doc_text = '\n'.join(doc_lines)
+        
+        # Replace common XML tags with formatted text
+        doc_text = re.sub(r'<summary>(.*?)</summary>', r'\1', doc_text, flags=re.DOTALL)
+        doc_text = re.sub(r'<param name="(\w+)">(.*?)</param>', r'Parameter \1: \2', doc_text, flags=re.DOTALL)
+        doc_text = re.sub(r'<returns>(.*?)</returns>', r'Returns: \1', doc_text, flags=re.DOTALL)
+        doc_text = re.sub(r'<exception cref="(\w+)">(.*?)</exception>', r'Exception \1: \2', doc_text, flags=re.DOTALL)
+        
+        return doc_text

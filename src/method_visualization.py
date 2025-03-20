@@ -1,4 +1,4 @@
-import tkinter as tk
+﻿import tkinter as tk
 import os
 
 
@@ -22,6 +22,9 @@ class CodeVisualizer(tk.Toplevel):
         # Create the UI components
         self.create_menu()
         self.create_main_interface()
+        # Add navigation history
+        self.navigation_history = []
+        self.history_position = -1
         
         # Ensure window is properly centered
         self.update_idletasks()
@@ -30,6 +33,14 @@ class CodeVisualizer(tk.Toplevel):
         x = (self.winfo_screenwidth() // 2) - (width // 2)
         y = (self.winfo_screenheight() // 2) - (height // 2)
         self.geometry(f'{width}x{height}+{x}+{y}')
+        
+        # Add keyboard bindings
+        self.bind('<Alt-Left>', lambda e: self.navigate_back())
+        self.bind('<Alt-Right>', lambda e: self.navigate_forward())
+        self.bind('<Control-f>', lambda e: self.show_search_dialog())
+        self.bind('<Control-r>', lambda e: self.run_layout())
+        self.bind('<Control-1>', lambda e: self.center_view())
+        self.bind('<Escape>', lambda e: self.reset_view())
         
     def create_menu(self):
         """Create menu bar for the visualization window"""
@@ -74,6 +85,28 @@ class CodeVisualizer(tk.Toplevel):
         menubar.add_cascade(label="Search", menu=search_menu)
         search_menu.add_command(label="Find Method...", command=self.show_search_dialog)
         search_menu.add_command(label="Find References...", command=self.find_references)
+        
+        # Add navigation menu
+        navigation_menu = Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Navigation", menu=navigation_menu)
+        navigation_menu.add_command(label="Back", command=self.navigate_back, state="disabled")
+        navigation_menu.add_command(label="Forward", command=self.navigate_forward, state="disabled")
+        navigation_menu.add_separator()
+        navigation_menu.add_command(label="History...", command=self.show_history)
+
+        
+        # Update menu items with keyboard shortcuts
+        file_menu.add_command(label="Export Graph... (Ctrl+E)", command=self.export_graph)
+        view_menu.add_command(label="Reset View (Esc)", command=self.reset_view)
+        view_menu.add_command(label="Center Graph (Ctrl+1)", command=self.center_graph)
+        graph_menu.add_command(label="Run Layout (Ctrl+R)", command=self.run_layout)
+        search_menu.add_command(label="Find Method... (Ctrl+F)", command=self.show_search_dialog)
+        navigation_menu.add_command(label="Back (Alt+Left)", command=self.navigate_back, state="disabled")
+        navigation_menu.add_command(label="Forward (Alt+Right)", command=self.navigate_forward, state="disabled")
+        
+        
+        # Store reference to navigation menu
+        self.navigation_menu = navigation_menu
     
     def create_main_interface(self):
         """Create the main UI with resizable panels"""
@@ -105,8 +138,18 @@ class CodeVisualizer(tk.Toplevel):
         self.code_frame = ttk.LabelFrame(self.v_paned, text="Method Code")
         self.v_paned.add(self.code_frame, weight=3)
         
-        # Create code viewer
-        self.code_viewer = self.create_code_viewer(self.code_frame)
+        # Create enhanced interactive code viewer
+        self.code_viewer = InteractiveCodeViewer(self.code_frame, 
+                                               on_reference_click=self.navigate_to_method)
+        self.code_viewer.pack(fill=tk.BOTH, expand=True)
+
+        
+        # Add documentation panel below code view
+        self.doc_panel_frame = ttk.LabelFrame(self.code_frame, text="Method Documentation")
+        self.doc_panel_frame.pack(fill=tk.X, expand=False, padx=5, pady=5)
+        
+        self.doc_panel = MethodDocPanel(self.doc_panel_frame)
+        self.doc_panel.pack(fill=tk.BOTH, expand=True)
         
         # Bottom right panel - Relationships
         self.relationships_frame = ttk.LabelFrame(self.v_paned, text="Method Relationships")
@@ -281,6 +324,12 @@ class CodeVisualizer(tk.Toplevel):
         method_info = self.reference_tracker.get_detailed_method_info(file_path, method_name)
         if not method_info:
             return
+            
+        # Use the enhanced code viewer to display the method
+        self.code_viewer.display_method(file_path, method_name, method_info, self.reference_tracker)
+        
+        # Update documentation panel
+        self.doc_panel.update_with_method(method_info)
             
         # Update method info display
         class_name = method_info.get('class', '')
@@ -459,11 +508,22 @@ class CodeVisualizer(tk.Toplevel):
         self.navigate_to_method(file_path, method_name)
     
     def navigate_to_method(self, file_path, method_name):
-        """Navigate to specified method in graph"""
+        """Navigate to specified method in graph and update history"""
         # Check if method exists
         method_info = self.reference_tracker.get_detailed_method_info(file_path, method_name)
         if not method_info:
             return
+            
+        # Add to navigation history - first remove any forward history
+        if self.history_position < len(self.navigation_history) - 1:
+            self.navigation_history = self.navigation_history[:self.history_position + 1]
+            
+        # Add current method to history
+        self.navigation_history.append((file_path, method_name))
+        self.history_position = len(self.navigation_history) - 1
+        
+        # Update navigation menu
+        self.update_navigation_menu()
             
         # Check if node exists in graph
         node_id = f"{file_path}::{method_name}"
@@ -479,11 +539,168 @@ class CodeVisualizer(tk.Toplevel):
         self.graph_canvas.selected_node = node_id
         
         # Center view on the node
-        node_data = self.graph_canvas.nodes[node_id]
         self.graph_canvas.center_on_node(node_id)
         
         # Update UI
         self.on_graph_selection(None)
+    
+    def navigate_back(self):
+        """Navigate back in history"""
+        if self.history_position <= 0:
+            return
+            
+        self.history_position -= 1
+        file_path, method_name = self.navigation_history[self.history_position]
+        
+        # Temporarily disable history to avoid adding a new entry
+        old_history = self.navigation_history
+        old_position = self.history_position
+        self.navigation_history = []
+        
+        # Navigate to the method
+        self._navigate_without_history(file_path, method_name)
+        
+        # Restore history
+        self.navigation_history = old_history
+        self.history_position = old_position
+        
+        # Update menu
+        self.update_navigation_menu()
+    
+    def navigate_forward(self):
+        """Navigate forward in history"""
+        if self.history_position >= len(self.navigation_history) - 1:
+            return
+            
+        self.history_position += 1
+        file_path, method_name = self.navigation_history[self.history_position]
+        
+        # Temporarily disable history to avoid adding a new entry
+        old_history = self.navigation_history
+        old_position = self.history_position
+        self.navigation_history = []
+        
+        # Navigate to the method
+        self._navigate_without_history(file_path, method_name)
+        
+        # Restore history
+        self.navigation_history = old_history
+        self.history_position = old_position
+        
+        # Update menu
+        self.update_navigation_menu()
+    
+    def _navigate_without_history(self, file_path, method_name):
+        """Navigate to method without updating history"""
+        # Check if method exists
+        method_info = self.reference_tracker.get_detailed_method_info(file_path, method_name)
+        if not method_info:
+            return
+            
+        # Check if node exists in graph
+        node_id = f"{file_path}::{method_name}"
+        if node_id not in self.graph_canvas.nodes:
+            # Build graph for this method
+            self.build_graph_for_method(file_path, method_name)
+            return
+            
+        # Select the node
+        self.graph_canvas.selected_node = node_id
+        
+        # Center view on the node
+        self.graph_canvas.center_on_node(node_id)
+        
+        # Update UI
+        self.on_graph_selection(None)
+
+    def update_navigation_menu(self):
+        """Update navigation menu state based on history"""
+        # Enable/disable back button
+        back_state = "normal" if self.history_position > 0 else "disabled"
+        self.navigation_menu.entryconfig("Back", state=back_state)
+        
+        # Enable/disable forward button
+        forward_state = "normal" if self.history_position < len(self.navigation_history) - 1 else "disabled"
+        self.navigation_menu.entryconfig("Forward", state=forward_state)
+    
+    def show_history(self):
+        """Show navigation history dialog"""
+        if not self.navigation_history:
+            messagebox.showinfo("History", "No navigation history available")
+            return
+            
+        # Create dialog
+        dialog = tk.Toplevel(self)
+        dialog.title("Navigation History")
+        dialog.geometry("500x400")
+        dialog.transient(self)
+        dialog.grab_set()
+        
+        # Create listbox with scrollbar
+        frame = ttk.Frame(dialog, padding="10")
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        scrollbar = ttk.Scrollbar(frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        listbox = tk.Listbox(frame, yscrollcommand=scrollbar.set, font=('Courier', 10))
+        listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        scrollbar.config(command=listbox.yview)
+        
+        # Add history items
+        for i, (file_path, method_name) in enumerate(self.navigation_history):
+            # Get relative path if possible
+            display_path = file_path
+            if self.root_dir:
+                try:
+                    display_path = os.path.relpath(file_path, self.root_dir)
+                except ValueError:
+                    pass
+                    
+            # Add prefix to show current position
+            prefix = "→ " if i == self.history_position else "  "
+            
+            listbox.insert(tk.END, f"{prefix}{method_name} ({display_path})")
+            
+            # Highlight current position
+            if i == self.history_position:
+                listbox.itemconfig(i, background='#ffffcc')
+        
+        # Ensure current position is visible
+        listbox.see(self.history_position)
+        
+        # Create buttons
+        button_frame = ttk.Frame(dialog, padding="10")
+        button_frame.pack(fill=tk.X)
+        
+        ttk.Button(button_frame, text="Close", command=dialog.destroy).pack(side=tk.RIGHT, padx=5)
+        
+        # Function to navigate to selected history item
+        def go_to_selected():
+            selected = listbox.curselection()
+            if not selected:
+                return
+                
+            index = selected[0]
+            file_path, method_name = self.navigation_history[index]
+            
+            # Set history position
+            self.history_position = index
+            
+            # Close dialog
+            dialog.destroy()
+            
+            # Navigate to method
+            self._navigate_without_history(file_path, method_name)
+            
+            # Update menu
+            self.update_navigation_menu()
+        
+        ttk.Button(button_frame, text="Go To Selected", command=go_to_selected).pack(side=tk.RIGHT, padx=5)
+        
+        # Bind double-click
+        listbox.bind('<Double-1>', lambda e: go_to_selected())
     
     def build_graph_for_method(self, file_path, method_name):
         """Build and display graph starting from specified method"""

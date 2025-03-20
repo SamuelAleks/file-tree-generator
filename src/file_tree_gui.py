@@ -1022,6 +1022,15 @@ class FileTreeGeneratorApp:
                                 grandchild.configure(state=state)
                         except:
                             pass
+
+        
+        # Update visualization menu items
+        if hasattr(self, 'visualization_menu'):
+            try:
+                method_vis_state = "normal" if self.reference_tracking_var.get() else "disabled"
+                self.visualization_menu.entryconfig("Method Visualization", state=method_vis_state)
+            except:
+                pass  # Menu item might not exist yet
                         
         # Update visualization menu
         self.update_visualization_menu()
