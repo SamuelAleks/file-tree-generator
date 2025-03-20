@@ -39,3 +39,4 @@ installer/
 /src/file_structure.txt
 /src/test_output.txt
 /version.iss
+/.github/workflows/tests.yml
