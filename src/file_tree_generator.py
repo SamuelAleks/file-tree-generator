@@ -67,7 +67,7 @@ that maximizes token efficiency while preserving all data.
 def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, blacklist_files=None, 
                   max_lines=1000, max_line_length=300, compact_view=False, ultra_compact_view=False,
                   remove_comments=False, exclude_empty_lines=False,
-                  smart_truncate=False, hide_repeated_sections=False,
+                  smart_truncate=False, hide_binary_files=False, hide_repeated_sections=False,
                   priority_folders=None, priority_files=None, referenced_files=None,
                   enable_token_estimation=False, token_model="claude-3.5-sonnet", token_method="char"):
     """
@@ -472,13 +472,6 @@ def create_file_tree(root_dir, extensions, output_file, blacklist_folders=None, 
                 output.append(f"{prefix}❌ Error processing {current_dir}: {str(e)}")
             return False
 
-    def format_size(size_bytes):
-        """Format file size in a human-readable format"""
-        for unit in ['B', 'KB', 'MB', 'GB']:
-            if size_bytes < 1024.0:
-                return f"{size_bytes:.2f} {unit}"
-            size_bytes /= 1024.0
-        return f"{size_bytes:.2f} TB"
 
     # Generate barebones tree structure first
     output.append("DIRECTORY STRUCTURE SUMMARY")
@@ -893,6 +886,15 @@ def export_as_markdown(output_lines, output_file):
     
     with open(output_file, 'w', encoding='utf-8') as f:
         f.write('\n'.join(md_output))
+
+
+def format_size(size_bytes):
+    """Format file size in a human-readable format"""
+    for unit in ['B', 'KB', 'MB', 'GB']:
+        if size_bytes < 1024.0:
+            return f"{size_bytes:.2f} {unit}"
+        size_bytes /= 1024.0
+    return f"{size_bytes:.2f} TB"
 
 def export_as_json(output_lines, output_file):
     """

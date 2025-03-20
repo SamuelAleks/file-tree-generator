@@ -193,7 +193,7 @@ class FileTreeGeneratorApp:
                        variable=self.smart_truncate_var).grid(row=1, column=0, sticky=tk.W)
     
         # Hide binary files toggle
-        self.hide_binary_files_var = tk.BooleanVar(value=self.config.get('smart_truncate', False))
+        self.hide_binary_files_var = tk.BooleanVar(value=self.config.get('hide_binary_files', False))
         ttk.Checkbutton(efficiency_frame, text="Hide Binary Files", 
                        variable=self.hide_binary_files_var).grid(row=1, column=1, sticky=tk.W)
     
@@ -424,7 +424,7 @@ class FileTreeGeneratorApp:
                 'remove_comments': self.remove_comments_var.get(),
                 'exclude_empty_lines': self.exclude_empty_lines_var.get(),
                 'smart_truncate': self.smart_truncate_var.get(),
-                #'hide_binary_files': self.hide_binary_files_var.get(),
+                'hide_binary_files': self.hide_binary_files_var.get(),
                 'hide_repeated_sections': self.hide_repeated_sections_var.get(),
                 # Token estimation settings
                 'enable_token_estimation': self.enable_token_estimation_var.get(),
@@ -622,10 +622,11 @@ class FileTreeGeneratorApp:
                 remove_comments=self.remove_comments_var.get(),
                 exclude_empty_lines=self.exclude_empty_lines_var.get(),
                 smart_truncate=self.smart_truncate_var.get(), 
+                hide_binary_files=self.hide_binary_files_var.get(),  # Added this parameter
                 hide_repeated_sections=self.hide_repeated_sections_var.get(),
                 priority_folders=priority_folders,
                 priority_files=priority_files,
-                referenced_files=referenced_files,  # This is now properly passed to create_file_tree
+                referenced_files=referenced_files,
                 enable_token_estimation=enable_token_estimation,
                 token_model=token_model,
                 token_method=token_method

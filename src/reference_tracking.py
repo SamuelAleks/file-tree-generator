@@ -86,10 +86,10 @@ class ReferenceTrackingManager:
         Returns:
             List of method names
         """
-        if file_path not in self.file_info:
+        if file_path not in self.tracker.file_info:
             return []
     
-        return self.file_info[file_path].get('methods', [])
+        return self.tracker.file_info[file_path].get('methods', [])
 
     def find_related_files(self, start_files, depth=float('inf'), ignore_xaml=False):
         """
